@@ -1,3 +1,11 @@
+<div align="center">
+  <a href="./README.md">English</a> |
+  <a href="./README.ko.md">한국어</a> |
+  <a href="./README.zh-CN.md">简体中文</a> |
+  <a href="./README.ja.md">日本語</a> |
+  <a href="./README.es.md">Español</a>
+</div>
+
 # <div align="center">cdx</div>
 
 <div align="center">
@@ -17,6 +25,72 @@
   <img alt="Vite 7" src="https://img.shields.io/badge/Vite-7-111111?style=for-the-badge&logo=vite&logoColor=646CFF" />
   <img alt="Platforms" src="https://img.shields.io/badge/Linux%20%26%20macOS-supported-111111?style=for-the-badge" />
 </div>
+
+<br />
+
+<div align="center">
+  <a href="#quick-start"><img alt="Quick Start" src="https://img.shields.io/badge/Quick%20Start-18181B?style=flat-square&logo=rocket&logoColor=white" /></a>
+  <a href="#command-reference"><img alt="CLI" src="https://img.shields.io/badge/CLI-18181B?style=flat-square&logo=gnubash&logoColor=white" /></a>
+  <a href="#how-the-dashboard-works"><img alt="Dashboard" src="https://img.shields.io/badge/Dashboard-18181B?style=flat-square&logo=react&logoColor=61DAFB" /></a>
+  <a href="#roadmap-direction"><img alt="Roadmap" src="https://img.shields.io/badge/Roadmap-18181B?style=flat-square&logo=github&logoColor=white" /></a>
+</div>
+
+<div align="center">
+  <sub>Local-first. Profile-aware. Built for Codex operators who need less alias folklore and more visibility.</sub>
+</div>
+
+<br />
+
+<div align="center">
+  <img src="./assets/social-preview.png" alt="cdx social preview" width="100%" />
+</div>
+
+## Highlights
+
+| Profile-aware runs | Usage visibility | Shared AGENTS wiring | Local dashboard |
+| --- | --- | --- | --- |
+| Launch `codex` with the right `CODEX_HOME` every time | Inspect live usage without opening auth files manually | Keep one shared `AGENTS.md` connected across repos | Use the browser for the tasks that do not need a full terminal |
+
+## Typical Workflows
+
+| Scenario | What cdx helps with |
+| --- | --- |
+| Solo builder with separate personal and work accounts | Switch cleanly between profiles without exporting env vars by hand |
+| Team lead managing several Codex homes | Check who is logged in, which plan is active, and which profile is nearing limits |
+| Repo setup across many projects | Reuse one shared `AGENTS.md` instead of repeating setup in every repo |
+| Browser-first operations | Start runs, login flows, and doctor refreshes without dropping into terminal-only workflows |
+
+## Architecture at a Glance
+
+```text
+Legacy homes (~/.codex, ~/.codex2, ...)
+            +
+Modern homes (~/.cdx/profiles/*)
+            |
+            v
+    cdx profile discovery
+            |
+            +-------------------+
+            |                   |
+            v                   v
+       CLI commands        Vite local API
+            |                   |
+            +---------+---------+
+                      |
+                      v
+     shared actions: run / usage / login / logout /
+     doctor / agents / profile management
+                      |
+                      v
+          Codex CLI + local dashboard
+```
+
+## Built For These Situations
+
+- you keep more than one Codex identity on the same machine
+- you want account and usage visibility before starting a long session
+- you want a lighter browser control surface for common actions
+- you want shared `AGENTS.md` behavior across repos without ad hoc symlink scripts
 
 ## Why cdx
 
@@ -53,6 +127,16 @@ about which account is logged in where. `cdx` turns that into an explicit workfl
 - run session start with status polling
 - doctor refresh
 - shared `AGENTS.md` preparation
+
+## Capability Map
+
+| Area | Included today |
+| --- | --- |
+| Profile lifecycle | create, list, inspect, remove |
+| Account access | login, logout, auth metadata visibility |
+| Usage operations | live usage fetch, per-profile or multi-profile views |
+| Repo ergonomics | global AGENTS preparation and status inspection |
+| Session control | start Codex runs and poll action status from the dashboard |
 
 ## Quick Start
 
