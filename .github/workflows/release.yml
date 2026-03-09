@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Package release assets
+        run: |
+          mkdir -p release
+          cp -R dist release/dist
+          cp -R dist-cli release/dist-cli
+          cp package.json package-lock.json README.md release/
+          tar -czf cdx-${{ github.ref_name }}-linux.tar.gz -C release .
+          zip -r cdx-${{ github.ref_name }}-linux.zip release
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            cdx-${{ github.ref_name }}-linux.tar.gz
+            cdx-${{ github.ref_name }}-linux.zip
