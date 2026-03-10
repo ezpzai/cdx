@@ -27,6 +27,12 @@ const ANSI_CSI_PATTERN = new RegExp(`${ESC}\\[[0-9;?]*[ -/]*[@-~]`, "g");
 const ANSI_SINGLE_PATTERN = new RegExp(`${ESC}[@-_]`, "g");
 const TRUST_PROMPT_PATTERN = /Do you trust the contents of this directory\?/;
 const TRUST_READY_PATTERN = /(Tip:|To get started|context left|100% left|\/status - show current session configuration|OpenAI Codex)/;
+class InvalidJsonBodyError extends Error {
+    constructor(message = "Malformed JSON body.") {
+        super(message);
+        this.name = "InvalidJsonBodyError";
+    }
+}
 function trimOutput(lines) {
     return lines.slice(-OUTPUT_LIMIT);
 }
@@ -177,7 +183,12 @@ async function readJsonBody(req) {
     if (chunks.length === 0) {
         return {};
     }
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    try {
+        return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    }
+    catch {
+        throw new InvalidJsonBodyError();
+    }
 }
 function summarizeDevice(req) {
     const userAgent = req.headers["user-agent"] || "Unknown device";
@@ -332,7 +343,17 @@ export async function startRemoteSession(options) {
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/auth/otp") {
-            const body = await readJsonBody(req);
+            let body;
+            try {
+                body = await readJsonBody(req);
+            }
+            catch (error) {
+                if (error instanceof InvalidJsonBodyError) {
+                    sendJson(res, 400, { message: error.message });
+                    return;
+                }
+                throw error;
+            }
             if (!validateInviteToken(inviteSecret, remoteSessionId, typeof body.token === "string" ? body.token : null)) {
                 sendJson(res, 401, { message: "Invite token is invalid." });
                 return;

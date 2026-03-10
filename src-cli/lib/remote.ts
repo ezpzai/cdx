@@ -36,6 +36,13 @@ const TRUST_READY_PATTERN =
 
 type RemoteSessionStatus = "starting" | "running" | "succeeded" | "failed";
 
+class InvalidJsonBodyError extends Error {
+  constructor(message = "Malformed JSON body.") {
+    super(message);
+    this.name = "InvalidJsonBodyError";
+  }
+}
+
 interface AuthSession {
   id: string;
   deviceId: string | null;
@@ -270,7 +277,11 @@ async function readJsonBody(req: IncomingMessage): Promise<Record<string, unknow
     return {};
   }
 
-  return JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+  } catch {
+    throw new InvalidJsonBodyError();
+  }
 }
 
 function summarizeDevice(req: IncomingMessage): string {
@@ -454,7 +465,17 @@ export async function startRemoteSession(
     }
 
     if (req.method === "POST" && url.pathname === "/api/auth/otp") {
-      const body = await readJsonBody(req);
+      let body: Record<string, unknown>;
+      try {
+        body = await readJsonBody(req);
+      } catch (error) {
+        if (error instanceof InvalidJsonBodyError) {
+          sendJson(res, 400, { message: error.message });
+          return;
+        }
+        throw error;
+      }
+
       if (!validateInviteToken(inviteSecret, remoteSessionId, typeof body.token === "string" ? body.token : null)) {
         sendJson(res, 401, { message: "Invite token is invalid." });
         return;
