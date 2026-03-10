@@ -1,5 +1,5 @@
 <div align="center">
-  <a href="./README.md">English</a> |
+  <a href="../README.md">English</a> |
   <a href="./README.ko.md">한국어</a> |
   <a href="./README.zh-CN.md">简体中文</a> |
   <a href="./README.ja.md">日本語</a> |
@@ -11,7 +11,7 @@
 **Codex를 더 편하게, 모바일에서도.**
 
 <div align="center">
-  <img src="./assets/social-preview.png" alt="cdx social preview" width="100%" />
+  <img src="../assets/social-preview.png" alt="cdx social preview" width="100%" />
 </div>
 
 
@@ -78,4 +78,3 @@ cdx usage // 사용량 확인
 - 외부 링크: `cdx remote <profile>`
 - 같은 Wi-Fi / LAN: `cdx remote <profile> --tunnel none --lan`
 - 로컬 전용: `cdx remote <profile> --tunnel none`
-

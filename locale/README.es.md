@@ -1,5 +1,5 @@
 <div align="center">
-  <a href="./README.md">English</a> |
+  <a href="../README.md">English</a> |
   <a href="./README.ko.md">한국어</a> |
   <a href="./README.zh-CN.md">简体中文</a> |
   <a href="./README.ja.md">日本語</a> |
@@ -11,7 +11,7 @@
 **Usa Codex con más facilidad, también desde móvil.**
 
 <div align="center">
-  <img src="./assets/social-preview.png" alt="cdx social preview" width="100%" />
+  <img src="../assets/social-preview.png" alt="cdx social preview" width="100%" />
 </div>
 
 ## Inicio rápido

@@ -31,7 +31,7 @@ jobs:
             exit 0
           fi
           case "$COMMIT_MESSAGE" in
-            chore:\ release\ v*)
+            chore:\ release\ v*|*"[skip release]"*)
               echo "skip=true" >> "$GITHUB_OUTPUT"
               ;;
             *)

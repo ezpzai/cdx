@@ -1,13 +1,13 @@
 {
   "name": "@ezpzai/cdx",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Use Codex more easily, even away from your desk.",
   "type": "module",
   "files": [
     "dist-cli",
     "README.md",
-    "README.ko.md",
-    "assets"
+    "LICENSE",
+    "assets/social-preview.png"
   ],
   "bin": {
     "cdx": "dist-cli/index.js"
