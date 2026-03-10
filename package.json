@@ -1,6 +1,6 @@
 {
   "name": "@ezpzai/cdx",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Use Codex more easily, even away from your desk.",
   "type": "module",
   "files": [
