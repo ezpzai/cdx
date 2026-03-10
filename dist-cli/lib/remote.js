@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
+import fsp from "node:fs/promises";
 import http, {} from "node:http";
 import { once } from "node:events";
+import { createRequire } from "node:module";
 import xtermHeadless from "@xterm/headless";
 import * as pty from "node-pty";
 import WebSocket, { WebSocketServer } from "ws";
@@ -27,6 +29,30 @@ const ANSI_CSI_PATTERN = new RegExp(`${ESC}\\[[0-9;?]*[ -/]*[@-~]`, "g");
 const ANSI_SINGLE_PATTERN = new RegExp(`${ESC}[@-_]`, "g");
 const TRUST_PROMPT_PATTERN = /Do you trust the contents of this directory\?/;
 const TRUST_READY_PATTERN = /(Tip:|To get started|context left|100% left|\/status - show current session configuration|OpenAI Codex)/;
+const require = createRequire(import.meta.url);
+const REMOTE_WEB_ASSETS = new Map([
+    [
+        "/__cdx/remote/xterm.js",
+        {
+            filePath: require.resolve("@xterm/xterm/lib/xterm.js"),
+            contentType: "application/javascript; charset=utf-8",
+        },
+    ],
+    [
+        "/__cdx/remote/xterm-addon-fit.js",
+        {
+            filePath: require.resolve("@xterm/addon-fit/lib/addon-fit.js"),
+            contentType: "application/javascript; charset=utf-8",
+        },
+    ],
+    [
+        "/__cdx/remote/xterm.css",
+        {
+            filePath: require.resolve("@xterm/xterm/css/xterm.css"),
+            contentType: "text/css; charset=utf-8",
+        },
+    ],
+]);
 class InvalidJsonBodyError extends Error {
     constructor(message = "Malformed JSON body.") {
         super(message);
@@ -175,6 +201,19 @@ function sendHtml(res, html, cookies = []) {
     }
     res.end(html);
 }
+async function sendStaticAsset(res, filePath, contentType) {
+    try {
+        const contents = await fsp.readFile(filePath);
+        res.statusCode = 200;
+        res.setHeader("Content-Type", contentType);
+        res.setHeader("Cache-Control", "public, max-age=3600, immutable");
+        res.end(contents);
+    }
+    catch {
+        res.statusCode = 404;
+        res.end();
+    }
+}
 async function readJsonBody(req) {
     const chunks = [];
     for await (const chunk of req) {
@@ -193,6 +232,36 @@ async function readJsonBody(req) {
 function summarizeDevice(req) {
     const userAgent = req.headers["user-agent"] || "Unknown device";
     return userAgent.replace(/\s+/g, " ").slice(0, 72);
+}
+function requestUsesSecureCookies(req) {
+    const forwardedProtoHeader = req.headers["x-forwarded-proto"];
+    const forwardedProto = Array.isArray(forwardedProtoHeader) ? forwardedProtoHeader[0] : forwardedProtoHeader;
+    if (typeof forwardedProto === "string" && forwardedProto.trim().length > 0) {
+        return forwardedProto.split(",")[0]?.trim().toLowerCase() === "https";
+    }
+    const forwardedHeader = req.headers.forwarded;
+    const forwardedValue = Array.isArray(forwardedHeader) ? forwardedHeader[0] : forwardedHeader;
+    if (typeof forwardedValue === "string") {
+        const match = forwardedValue.match(/proto=(?:\"([^\"]+)\"|([^;,\s]+))/i);
+        const proto = (match?.[1] ?? match?.[2] ?? "").trim().toLowerCase();
+        if (proto.length > 0) {
+            return proto === "https";
+        }
+    }
+    const cfVisitorHeader = req.headers["cf-visitor"];
+    const cfVisitor = Array.isArray(cfVisitorHeader) ? cfVisitorHeader[0] : cfVisitorHeader;
+    if (typeof cfVisitor === "string") {
+        try {
+            const parsed = JSON.parse(cfVisitor);
+            if (typeof parsed.scheme === "string" && parsed.scheme.trim().length > 0) {
+                return parsed.scheme.trim().toLowerCase() === "https";
+            }
+        }
+        catch {
+            // Ignore malformed proxy metadata.
+        }
+    }
+    return "encrypted" in req.socket && req.socket.encrypted === true;
 }
 export async function startRemoteSession(options) {
     const { profile, mode, codexArgs, cwd, tunnel: tunnelMode, bindHost, printQr } = options;
@@ -286,6 +355,7 @@ export async function startRemoteSession(options) {
     };
     const authenticate = async (req) => {
         const cookies = parseCookies(req.headers.cookie);
+        const secure = requestUsesSecureCookies(req);
         const trustedDevice = await resolveTrustedDevice(cookies.get(TRUSTED_DEVICE_COOKIE));
         if (!trustedDevice) {
             return { cookies: [], session: null };
@@ -293,7 +363,7 @@ export async function startRemoteSession(options) {
         if (authSession && authSession.deviceId === trustedDevice.id) {
             await touchTrustedDevice(trustedDevice.id);
             return {
-                cookies: [serializeCookie(AUTH_COOKIE, authSession.id, { maxAge: 24 * 60 * 60 })],
+                cookies: [serializeCookie(AUTH_COOKIE, authSession.id, { maxAge: 24 * 60 * 60, secure })],
                 session: authSession,
             };
         }
@@ -303,7 +373,7 @@ export async function startRemoteSession(options) {
             label: trustedDevice.label,
         };
         return {
-            cookies: [serializeCookie(AUTH_COOKIE, authSession.id, { maxAge: 24 * 60 * 60 })],
+            cookies: [serializeCookie(AUTH_COOKIE, authSession.id, { maxAge: 24 * 60 * 60, secure })],
             session: authSession,
         };
     };
@@ -320,6 +390,11 @@ export async function startRemoteSession(options) {
         if (!url) {
             res.statusCode = 404;
             res.end();
+            return;
+        }
+        const asset = REMOTE_WEB_ASSETS.get(url.pathname);
+        if (asset) {
+            await sendStaticAsset(res, asset.filePath, asset.contentType);
             return;
         }
         const inviteTokenFromQuery = url.searchParams.get("t");
@@ -379,14 +454,15 @@ export async function startRemoteSession(options) {
             otp.attempts = 0;
             otp.lockedUntil = 0;
             const grant = await issueTrustedDevice(summarizeDevice(req));
+            const secure = requestUsesSecureCookies(req);
             authSession = {
                 id: crypto.randomUUID(),
                 deviceId: grant.record.id,
                 label: grant.record.label,
             };
             sendJson(res, 200, { ok: true }, [
-                serializeCookie(AUTH_COOKIE, authSession.id, { maxAge: 24 * 60 * 60 }),
-                serializeCookie(TRUSTED_DEVICE_COOKIE, grant.cookieValue, { maxAge: 3650 * 24 * 60 * 60 }),
+                serializeCookie(AUTH_COOKIE, authSession.id, { maxAge: 24 * 60 * 60, secure }),
+                serializeCookie(TRUSTED_DEVICE_COOKIE, grant.cookieValue, { maxAge: 3650 * 24 * 60 * 60, secure }),
             ]);
             return;
         }

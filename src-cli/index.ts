@@ -45,23 +45,32 @@ import {
 } from "./lib/actions.js";
 
 function printHelp(): void {
-  console.log(`cdx
+  const R = "\u001B[0m";
+  const B = "\u001B[1m";
+  const D = "\u001B[2m";
+  const C = "\u001B[96m";
+  const Y = "\u001B[93m";
+  const W = "\u001B[97m";
 
-Usage:
-  cdx run [profile] [codex args...] [--mode <safe|balanced|yolo>]
-  cdx remote [profile] [codex args...] [--mode <safe|balanced|yolo>] [--tunnel <cloudflare|none>] [--no-qr] [--lan]
-  cdx remote devices ls
-  cdx remote devices rm <device-id>|--all
-  cdx mode
-  cdx mode set <safe|balanced|yolo> [--profile <profile>]
-  cdx usage [profile] [--json]
-  cdx agents edit --global
-  cdx agents status
-  cdx login <profile>
-  cdx logout <profile>
-  cdx ls
-  cdx rm <profile> [--force]
-`);
+  const lines = [
+    "",
+    `${B}${C} cdx${R}  ${D}Codex on mobile${R}`,
+    "",
+    `${W}Commands${R}`,
+    `  ${C}run${R}     ${D}[profile] [--mode <mode>]${R}          Launch Codex`,
+    `  ${C}remote${R}  ${D}[profile] [--tunnel <type>]${R}        Mobile remote session`,
+    `  ${C}usage${R}   ${D}[profile] [--json]${R}                 Quota status`,
+    `  ${C}mode${R}    ${D}[set <mode>] [--profile <p>]${R}       Default mode`,
+    `  ${C}login${R}   ${D}<profile>${R}                           Create / login`,
+    `  ${C}logout${R}  ${D}<profile>${R}                           Logout`,
+    `  ${C}ls${R}                                         Profiles`,
+    `  ${C}rm${R}      ${D}<profile> [--force]${R}                 Remove profile`,
+    `  ${C}agents${R}  ${D}edit --global | status${R}              AGENTS.md`,
+    "",
+    `${W}Modes${R}  ${Y}safe${R} ${D}|${R} ${Y}balanced${R} ${D}|${R} ${Y}yolo${R}`,
+    "",
+  ];
+  console.log(lines.join("\n"));
 }
 
 function printConfigWarnings(warnings: string[]): void {
@@ -95,14 +104,26 @@ function formatResetTime(value: string | null, fallback = "?"): string {
 }
 
 function printPreflight(preflight: ReturnType<typeof buildPreflight>): void {
-  console.log("\ncdx run preflight\n");
-  console.log(`Profile:    ${preflight.profile.id}`);
-  console.log(`Account:    ${preflight.profile.email}`);
-  console.log(`Plan:       ${preflight.profile.plan}`);
-  console.log(`Mode:       ${preflight.mode}`);
-  console.log(`Auth:       ${preflight.authState}`);
-  console.log(`5h quota:   ${formatQuotaValue(preflight.quota.fiveHourLeft, preflight.quota.fiveHourReset)}`);
-  console.log(`Weekly:     ${formatQuotaValue(preflight.quota.weeklyLeft, preflight.quota.weeklyReset)}`);
+  const R = "\u001B[0m";
+  const D = "\u001B[2m";
+  const C = "\u001B[96m";
+  const Y = "\u001B[93m";
+  const G = "\u001B[32m";
+  const W = "\u001B[97m";
+
+  const fiveH = formatQuotaValue(preflight.quota.fiveHourLeft, preflight.quota.fiveHourReset);
+  const weekly = formatQuotaValue(preflight.quota.weeklyLeft, preflight.quota.weeklyReset);
+
+  const lines = [
+    "",
+    `${D}──${R} ${C}cdx${R} ${D}preflight${R}`,
+    `   ${D}profile${R}  ${W}${preflight.profile.id}${R}  ${D}${preflight.profile.email}${R}`,
+    `   ${D}plan${R}     ${W}${preflight.profile.plan}${R}  ${D}mode=${R}${Y}${preflight.mode}${R}  ${D}auth=${R}${G}${preflight.authState}${R}`,
+    `   ${D}5h${R}       ${W}${fiveH}${R}`,
+    `   ${D}weekly${R}   ${W}${weekly}${R}`,
+    "",
+  ];
+  console.log(lines.join("\n"));
 }
 
 async function chooseProfileInteractively(): Promise<ProfileRecord> {
@@ -648,17 +669,20 @@ async function handleMode(args: string[]): Promise<void> {
   const profileId = profileFlagIndex >= 0 ? rest[profileFlagIndex + 1] : undefined;
 
   if (!subcommand) {
-    console.log("cdx mode\n");
-    console.log(`Global default:  ${config.defaultMode ?? "unset"}`);
+    const R = "\u001B[0m";
+    const D = "\u001B[2m";
+    const C = "\u001B[96m";
+    const Y = "\u001B[93m";
+
+    console.log("");
+    console.log(`  ${D}global${R}  ${Y}${config.defaultMode ?? "unset"}${R}`);
     const profileEntries = Object.entries(config.profiles);
-    if (profileEntries.length === 0) {
-      console.log("Profile defaults: none");
-      return;
+    if (profileEntries.length > 0) {
+      for (const [profileName, profileConfig] of profileEntries.sort(([a], [b]) => a.localeCompare(b))) {
+        console.log(`  ${C}${profileName}${R}  ${Y}${profileConfig.defaultMode ?? "unset"}${R}`);
+      }
     }
-    console.log("Profile defaults:");
-    for (const [profileName, profileConfig] of profileEntries.sort(([left], [right]) => left.localeCompare(right))) {
-      console.log(`  - ${profileName}: ${profileConfig.defaultMode ?? "unset"}`);
-    }
+    console.log("");
     return;
   }
 
@@ -737,24 +761,31 @@ async function handleUsage(args: string[]): Promise<void> {
     return;
   }
 
-  console.log("Profile          Account                                   Plan      5h left                      Weekly left");
+  console.log("");
+  const R = "\u001B[0m";
+  const D = "\u001B[2m";
+  const C = "\u001B[96m";
+  const W = "\u001B[97m";
+  const RED = "\u001B[91m";
+
   for (const row of rows) {
-    const account = String(row.account).slice(0, 38).padEnd(38);
-    const plan = String(row.plan || "unknown").slice(0, 8).padEnd(8);
+    const account = String(row.account).slice(0, 38);
+    const plan = row.plan || "unknown";
     if (row.error) {
-      console.log(`${row.profile.padEnd(16)} ${account} ${plan}  ${row.error}`);
+      console.log(`  ${C}${row.profile}${R}  ${D}${account}${R}  ${RED}${row.error}${R}`);
       continue;
     }
     const fiveHour =
       row.fiveHourLeft === null
-        ? "n/a".padEnd(28)
-        : `${String(row.fiveHourLeft).padStart(3)}% left (${formatResetTime(row.fiveHourReset)})`.padEnd(28);
+        ? "n/a"
+        : `${row.fiveHourLeft}% (${formatResetTime(row.fiveHourReset)})`;
     const weekly =
       row.weeklyLeft === null
         ? "n/a"
-        : `${String(row.weeklyLeft).padStart(3)}% left (${formatResetTime(row.weeklyReset)})`;
-    console.log(`${row.profile.padEnd(16)} ${account} ${plan}  ${fiveHour} ${weekly}`);
+        : `${row.weeklyLeft}% (${formatResetTime(row.weeklyReset)})`;
+    console.log(`  ${C}${row.profile}${R}  ${D}${account}${R}  ${D}${plan}${R}  ${W}5h${R} ${fiveHour}  ${W}wk${R} ${weekly}`);
   }
+  console.log("");
 }
 
 async function handleAgents(args: string[]): Promise<void> {
@@ -775,14 +806,20 @@ async function handleAgents(args: string[]): Promise<void> {
   }
 
   if (subcommand === "status") {
+    const R = "\u001B[0m";
+    const D = "\u001B[2m";
+    const C = "\u001B[96m";
+    const W = "\u001B[97m";
     const status = await getAgentsStatus(process.cwd());
-    console.log(`Global:   ${status.globalExists ? status.globalPath : `${status.globalPath} (missing)`}`);
-    console.log(`Project:  ${status.projectRoot}`);
-    console.log(`AGENTS:   ${status.projectAgentsPath}`);
-    console.log(`State:    ${status.projectState}`);
+    console.log("");
+    console.log(`  ${D}global${R}    ${W}${status.globalExists ? status.globalPath : `${status.globalPath} (missing)`}${R}`);
+    console.log(`  ${D}project${R}   ${W}${status.projectRoot}${R}`);
+    console.log(`  ${D}agents${R}    ${C}${status.projectAgentsPath}${R}`);
+    console.log(`  ${D}state${R}     ${W}${status.projectState}${R}`);
     if (status.linkedTarget) {
-      console.log(`Target:   ${status.linkedTarget}`);
+      console.log(`  ${D}target${R}    ${W}${status.linkedTarget}${R}`);
     }
+    console.log("");
     return;
   }
 
@@ -812,12 +849,18 @@ async function handleList(): Promise<void> {
     return;
   }
 
-  console.log("Profiles:\n");
+  const R = "\u001B[0m";
+  const D = "\u001B[2m";
+  const C = "\u001B[96m";
+  const W = "\u001B[97m";
+
+  console.log("");
   for (const profile of profiles) {
     const account = profile.auth?.email || "not logged in";
-    const plan = profile.auth?.plan || "unknown";
-    console.log(`- ${profile.id}  ${account}  [${profile.source}]  plan=${plan}  home=${profile.homePath}`);
+    const plan = profile.auth?.plan || "?";
+    console.log(`  ${C}${profile.id}${R}  ${D}${account}${R}  ${W}${plan}${R}`);
   }
+  console.log("");
 }
 
 async function handleRemove(args: string[]): Promise<void> {

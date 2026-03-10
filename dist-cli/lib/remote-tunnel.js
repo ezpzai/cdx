@@ -14,6 +14,7 @@ const ANSI_CYAN = "\u001B[36m";
 const ANSI_BRIGHT_CYAN = "\u001B[96m";
 const ANSI_BRIGHT_YELLOW = "\u001B[93m";
 const ANSI_UNDERLINE = "\u001B[4m";
+const ANSI_WHITE = "\u001B[97m";
 function commandAvailable(name) {
     const result = spawnSync("which", [name], { encoding: "utf8" });
     return result.status === 0;
@@ -34,16 +35,15 @@ export function isCloudflaredMissingError(error) {
 }
 export function formatCloudflaredInstallHelp() {
     const lines = [
-        "`cdx remote` defaults to Cloudflare Quick Tunnel for the external mobile link.",
         "",
-        "Install `cloudflared` and run `cdx remote` again:",
+        `${style("cloudflared", ANSI_BOLD, ANSI_WHITE)} not found`,
+        "",
         ...getInstallInstructions(),
         "",
-        "If you want to keep testing without Cloudflare right now:",
-        "  - local only: `cdx remote --tunnel none`",
-        "  - same Wi-Fi/LAN: `cdx remote --tunnel none --lan`",
+        `${style("Alternatives:", ANSI_DIM)}`,
+        `  local only  ${style("cdx remote --tunnel none", ANSI_CYAN)}`,
+        `  same LAN    ${style("cdx remote --tunnel none --lan", ANSI_CYAN)}`,
         "",
-        "Official docs: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/",
     ];
     return lines.join("\n");
 }
@@ -157,29 +157,22 @@ export async function renderTerminalQr(shareUrl) {
     });
 }
 export function formatRemoteBanner(input) {
-    const title = style("cdx remote", ANSI_BOLD, ANSI_BRIGHT_CYAN);
-    const mobileLinkLabel = style("Mobile link:", ANSI_BOLD, ANSI_CYAN);
-    const otpCodeLabel = style("OTP code:   ", ANSI_BOLD, ANSI_BRIGHT_YELLOW);
-    const otpExpiresLabel = style("OTP expires:", ANSI_BOLD, ANSI_CYAN);
-    const shareUrl = style(input.shareUrl, ANSI_UNDERLINE, ANSI_BRIGHT_CYAN);
-    const otpCode = style(input.otpCode, ANSI_BOLD, ANSI_BRIGHT_YELLOW);
-    const otpExpires = style(input.otpExpiresLabel, ANSI_BOLD);
+    const divider = style("─".repeat(48), ANSI_DIM);
+    const title = style(" cdx remote ", ANSI_BOLD, ANSI_BRIGHT_CYAN);
     const lines = [
         "",
+        divider,
         title,
+        divider,
         "",
-        `${mobileLinkLabel} ${shareUrl}`,
-        `${otpCodeLabel} ${otpCode}`,
-        `${otpExpiresLabel} ${otpExpires}`,
-        "",
-        style("Cloudflare Quick Tunnel is convenient but should be treated as an external beta/testing path.", ANSI_DIM),
-        style("Share the link or scan the QR code from your phone.", ANSI_DIM),
-        style("Only trusted devices skip OTP on future sessions.", ANSI_DIM),
+        `  ${style("Link", ANSI_DIM)}  ${style(input.shareUrl, ANSI_UNDERLINE, ANSI_BRIGHT_CYAN)}`,
+        `  ${style("OTP ", ANSI_DIM)}  ${style(input.otpCode, ANSI_BOLD, ANSI_BRIGHT_YELLOW)}  ${style(`expires ${input.otpExpiresLabel}`, ANSI_DIM)}`,
         "",
     ];
     if (input.qrText.trim()) {
-        lines.splice(6, 0, input.qrText, "");
+        lines.push(input.qrText, "");
     }
+    lines.push(style("  Scan QR or open the link on your phone.", ANSI_DIM), divider, "");
     return lines.join("\n");
 }
 function compactQrText(output) {
