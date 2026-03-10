@@ -20,12 +20,31 @@
 
 - Node.js 20+
 - Codex のインストール完了: `npm install -g @openai/codex`
+- `cloudflared` のインストールが必要
 - Linux、macOS 対応
 
 ### インストール
 
 ```bash
 npm install -g @ezpzai/cdx
+```
+
+### Cloudflare Quick Tunnel のインストール
+
+`cdx remote` はデフォルトで Cloudflare Quick Tunnel を使います。
+
+macOS:
+
+```bash
+brew install cloudflared
+```
+
+Linux:
+
+```bash
+curl -Lo cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+chmod +x cloudflared
+sudo mv cloudflared /usr/local/bin/
 ```
 
 ### 最初の利用
@@ -41,11 +60,11 @@ cdx usage // usage を確認
 
 | コマンド | 説明 |
 | --- | --- |
-| `cdx remote [profile] [codex args...] [--mode <safe|balanced|yolo>] [--tunnel <cloudflare|none>] [--no-qr] [--lan]` | デスクトップで実行中の Codex セッションをモバイル Web に引き継ぎます。 |
-| `cdx run [profile] [codex args...] [--mode <safe|balanced|yolo>]` | 選択したプロファイルの `CODEX_HOME` で Codex を起動します。 |
+| `cdx remote [profile] [codex args...] [--mode <safe\|balanced\|yolo>] [--tunnel <cloudflare\|none>] [--no-qr] [--lan]` | デスクトップで実行中の Codex セッションをモバイル Web に引き継ぎます。 |
+| `cdx run [profile] [codex args...] [--mode <safe\|balanced\|yolo>]` | 選択したプロファイルの `CODEX_HOME` で Codex を起動します。 |
 | `cdx usage [profile] [--json]` | プロファイルごとの auth と quota 状態を確認します。 |
 | `cdx mode` | 現在のデフォルト実行モードを表示します。 |
-| `cdx mode set <safe|balanced|yolo> [--profile <profile>]` | グローバルまたはプロファイル単位のデフォルト実行モードを保存します。 |
+| `cdx mode set <safe\|balanced\|yolo> [--profile <profile>]` | グローバルまたはプロファイル単位のデフォルト実行モードを保存します。 |
 | `cdx login <profile>` | 新しいプロファイルを作成するか、既存プロファイルにログインします。 |
 | `cdx logout <profile>` | プロファイルのログアウトを開始します。 |
 | `cdx ls` | 検出されたプロファイルを表示します。 |

@@ -3,6 +3,20 @@ import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { getProfilesRoot } from "./paths.js";
+function hasUsableAuth(profile) {
+    return Boolean(profile.auth?.email || profile.auth?.accessToken || profile.auth?.accountId);
+}
+function compareProfiles(left, right) {
+    const leftAuth = hasUsableAuth(left);
+    const rightAuth = hasUsableAuth(right);
+    if (leftAuth !== rightAuth) {
+        return leftAuth ? -1 : 1;
+    }
+    if (left.source !== right.source) {
+        return left.source === "legacy" ? -1 : 1;
+    }
+    return left.id.localeCompare(right.id, undefined, { numeric: true });
+}
 function decodeJwtPayload(token) {
     if (!token) {
         return null;
@@ -85,11 +99,12 @@ export async function listProfiles() {
     const profiles = [...(await listModernProfiles()), ...(await listLegacyProfiles())];
     const deduped = new Map();
     for (const profile of profiles) {
-        if (!deduped.has(profile.id)) {
+        const existing = deduped.get(profile.id);
+        if (!existing || compareProfiles(profile, existing) < 0) {
             deduped.set(profile.id, profile);
         }
     }
-    return [...deduped.values()];
+    return [...deduped.values()].sort(compareProfiles);
 }
 export async function resolveProfile(id) {
     const profiles = await listProfiles();

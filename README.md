@@ -20,12 +20,31 @@
 
 - Node.js 20+
 - Codex installed: `npm install -g @openai/codex`
+- `cloudflared` required
 - Linux and macOS supported
 
 ### Install
 
 ```bash
 npm install -g @ezpzai/cdx
+```
+
+### Install Cloudflare Quick Tunnel
+
+`cdx remote` uses Cloudflare Quick Tunnel by default.
+
+macOS:
+
+```bash
+brew install cloudflared
+```
+
+Linux:
+
+```bash
+curl -Lo cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+chmod +x cloudflared
+sudo mv cloudflared /usr/local/bin/
 ```
 
 ### First Run
@@ -41,11 +60,11 @@ cdx usage // check usage
 
 | Command | Description |
 | --- | --- |
-| `cdx remote [profile] [codex args...] [--mode <safe|balanced|yolo>] [--tunnel <cloudflare|none>] [--no-qr] [--lan]` | Continue a desktop Codex session from a mobile web surface. |
-| `cdx run [profile] [codex args...] [--mode <safe|balanced|yolo>]` | Launch Codex with the selected profile's `CODEX_HOME`. |
+| `cdx remote [profile] [codex args...] [--mode <safe\|balanced\|yolo>] [--tunnel <cloudflare\|none>] [--no-qr] [--lan]` | Continue a desktop Codex session from a mobile web surface. |
+| `cdx run [profile] [codex args...] [--mode <safe\|balanced\|yolo>]` | Launch Codex with the selected profile's `CODEX_HOME`. |
 | `cdx usage [profile] [--json]` | Check auth and quota status for each profile. |
 | `cdx mode` | Show the current default run mode. |
-| `cdx mode set <safe|balanced|yolo> [--profile <profile>]` | Save a global or profile-level default run mode. |
+| `cdx mode set <safe\|balanced\|yolo> [--profile <profile>]` | Save a global or profile-level default run mode. |
 | `cdx login <profile>` | Create a new profile or log into an existing one. |
 | `cdx logout <profile>` | Start logout for a profile. |
 | `cdx ls` | Show discovered profiles. |

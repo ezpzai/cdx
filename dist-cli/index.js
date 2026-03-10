@@ -7,7 +7,7 @@ import { clearRecentHandoff, getGlobalDefaultMode, getLowQuotaPreferredProfiles,
 import { getProfilesRoot } from "./lib/paths.js";
 import { listProfiles, resolveProfile } from "./lib/profiles.js";
 import { confirm, prompt, selectMode, selectOne } from "./lib/terminal.js";
-import { fetchCodexUsage } from "./lib/usage.js";
+import { fetchCodexUsage, fetchRemotePreflightUsage } from "./lib/usage.js";
 import { listTrustedDevices, revokeAllTrustedDevices, revokeTrustedDevice } from "./lib/remote-devices.js";
 import { startRemoteSession } from "./lib/remote.js";
 import { formatCloudflaredInstallHelp, isCloudflaredMissingError } from "./lib/remote-tunnel.js";
@@ -72,7 +72,11 @@ async function chooseProfileInteractively() {
     if (profiles.length === 0) {
         throw new Error(`No profiles found. Start one with \`cdx login <name>\` or move existing homes into ${getProfilesRoot()}.`);
     }
-    const usageRows = await loadUsageRows(profiles);
+    const usageRows = await Promise.all(profiles.map(async (profile) => ({
+        profile,
+        usage: await fetchRemotePreflightUsage(profile),
+        error: null,
+    })));
     const usageByProfileId = new Map(usageRows.map((row) => [row.profile.id, row]));
     return selectOne("Select a profile:", profiles.map((profile) => ({
         value: profile,
@@ -211,7 +215,10 @@ async function loadUsageRows(profiles) {
         try {
             return {
                 profile,
-                usage: await fetchCodexUsage(profile),
+                usage: await fetchCodexUsage(profile, {
+                    allowStatusFallback: false,
+                    timeoutMs: 2_500,
+                }),
                 error: null,
             };
         }
@@ -333,30 +340,37 @@ async function handleRun(args) {
     if (conflictingFlags.length > 0) {
         throw new Error(`Conflicting Codex flags with cdx mode: ${conflictingFlags.join(", ")}`);
     }
-    const profiles = await listProfiles();
-    const usageRows = await loadUsageRows(profiles);
-    const currentRow = usageRows.find((row) => row.profile.id === profile.id);
-    if (!currentRow) {
-        throw new Error(`Failed to prepare usage row for ${profile.id}`);
-    }
     let activeProfile = profile;
     let activeConfig = loadedConfig.config;
     let activeMode = await resolveMode(activeConfig, activeProfile.id, invocation.explicitMode);
-    let candidates = rankCandidateProfiles(activeProfile.id, usageRows, getLowQuotaPreferredProfiles(activeConfig));
-    let preflight = buildPreflight(activeProfile, activeMode, currentRow, candidates);
+    let currentUsage = await fetchRemotePreflightUsage(activeProfile);
+    let candidates = [];
+    let preflight = buildPreflight(activeProfile, activeMode, {
+        profile: activeProfile,
+        usage: currentUsage,
+        error: null,
+    }, candidates);
     printPreflight(preflight);
     let switchedBeforeRun = false;
     if (preflight.quota.warning) {
-        const alternate = await maybeSwitchForLowQuota(preflight.candidates);
+        const profiles = await listProfiles();
+        const usageRows = await loadUsageRows(profiles);
+        candidates = rankCandidateProfiles(activeProfile.id, usageRows, getLowQuotaPreferredProfiles(activeConfig));
+        preflight = buildPreflight(activeProfile, activeMode, {
+            profile: activeProfile,
+            usage: currentUsage,
+            error: null,
+        }, candidates);
+        const alternate = await maybeSwitchForLowQuota(candidates);
         if (alternate) {
             activeProfile = alternate.profile;
             activeMode = await resolveMode(activeConfig, activeProfile.id, invocation.explicitMode);
-            const nextRow = usageRows.find((row) => row.profile.id === activeProfile.id);
-            if (!nextRow) {
-                throw new Error(`Failed to prepare usage row for ${activeProfile.id}`);
-            }
-            candidates = rankCandidateProfiles(activeProfile.id, usageRows, getLowQuotaPreferredProfiles(activeConfig));
-            preflight = buildPreflight(activeProfile, activeMode, nextRow, candidates);
+            currentUsage = await fetchRemotePreflightUsage(activeProfile);
+            preflight = buildPreflight(activeProfile, activeMode, {
+                profile: activeProfile,
+                usage: currentUsage,
+                error: null,
+            }, candidates);
             printPreflight(preflight);
             switchedBeforeRun = true;
         }
@@ -369,6 +383,11 @@ async function handleRun(args) {
     if (!shouldOfferContinuation(firstRun.exitCode, firstRun.recentOutput)) {
         process.exitCode = firstRun.exitCode;
         return;
+    }
+    if (candidates.length === 0) {
+        const profiles = await listProfiles();
+        const usageRows = await loadUsageRows(profiles);
+        candidates = rankCandidateProfiles(activeProfile.id, usageRows, getLowQuotaPreferredProfiles(activeConfig));
     }
     const alternate = await pickAlternateProfile(candidates, "run failed");
     if (!alternate) {
@@ -395,33 +414,14 @@ async function handleRemote(args) {
     if (conflictingFlags.length > 0) {
         throw new Error(`Conflicting Codex flags with cdx mode: ${conflictingFlags.join(", ")}`);
     }
-    const profiles = await listProfiles();
-    const usageRows = await loadUsageRows(profiles);
-    const currentRow = usageRows.find((row) => row.profile.id === profile.id);
-    if (!currentRow) {
-        throw new Error(`Failed to prepare usage row for ${profile.id}`);
-    }
-    let activeProfile = profile;
-    let activeMode = await resolveMode(loadedConfig.config, activeProfile.id, invocation.explicitMode);
-    let candidates = rankCandidateProfiles(activeProfile.id, usageRows, getLowQuotaPreferredProfiles(loadedConfig.config));
-    let preflight = buildPreflight(activeProfile, activeMode, currentRow, candidates);
-    printPreflight(preflight);
-    let switchedBeforeRun = false;
-    if (preflight.quota.warning) {
-        const alternate = await maybeSwitchForLowQuota(preflight.candidates);
-        if (alternate) {
-            activeProfile = alternate.profile;
-            activeMode = await resolveMode(loadedConfig.config, activeProfile.id, invocation.explicitMode);
-            const nextRow = usageRows.find((row) => row.profile.id === activeProfile.id);
-            if (!nextRow) {
-                throw new Error(`Failed to prepare usage row for ${activeProfile.id}`);
-            }
-            candidates = rankCandidateProfiles(activeProfile.id, usageRows, getLowQuotaPreferredProfiles(loadedConfig.config));
-            preflight = buildPreflight(activeProfile, activeMode, nextRow, candidates);
-            printPreflight(preflight);
-            switchedBeforeRun = true;
-        }
-    }
+    const activeProfile = profile;
+    const activeMode = await resolveMode(loadedConfig.config, activeProfile.id, invocation.explicitMode);
+    const usage = await fetchRemotePreflightUsage(activeProfile);
+    printPreflight(buildPreflight(activeProfile, activeMode, {
+        profile: activeProfile,
+        usage,
+        error: null,
+    }, []));
     let result;
     try {
         result = await startRemoteSession({
@@ -443,9 +443,6 @@ async function handleRemote(args) {
         throw error;
     }
     process.exitCode = result.exitCode;
-    if (switchedBeforeRun && activeProfile.id !== profile.id) {
-        await maybeRememberLowQuotaPreference(activeProfile.id);
-    }
 }
 async function handleRemoteDevices(args) {
     const [subcommand, target] = args;
@@ -530,7 +527,10 @@ async function handleUsage(args) {
     const profiles = profileId ? [await requireProfile(profileId)] : await listProfiles();
     const rows = await Promise.all(profiles.map(async (profile) => {
         try {
-            const snapshot = await fetchCodexUsage(profile);
+            const snapshot = await fetchCodexUsage(profile, {
+                allowStatusFallback: false,
+                timeoutMs: 2_500,
+            });
             return {
                 profile: snapshot.profile,
                 source: snapshot.source,

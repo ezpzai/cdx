@@ -7,12 +7,22 @@ const qrcodeModule = require("qrcode-terminal");
 const qrcodeApi = (typeof qrcodeModule.generate === "function" ? qrcodeModule : null) ??
     (qrcodeModule.default && typeof qrcodeModule.default.generate === "function" ? qrcodeModule.default : null);
 const CLOUDFLARED_MISSING_MESSAGE = "`cloudflared` was not found in PATH. Install it first to use `cdx remote` with Cloudflare Quick Tunnel.";
+const ANSI_RESET = "\u001B[0m";
+const ANSI_BOLD = "\u001B[1m";
+const ANSI_DIM = "\u001B[2m";
+const ANSI_CYAN = "\u001B[36m";
+const ANSI_BRIGHT_CYAN = "\u001B[96m";
+const ANSI_BRIGHT_YELLOW = "\u001B[93m";
+const ANSI_UNDERLINE = "\u001B[4m";
 function commandAvailable(name) {
     const result = spawnSync("which", [name], { encoding: "utf8" });
     return result.status === 0;
 }
 function collectTryCloudflareUrl(chunk) {
     return chunk.match(TRYCLOUDFLARE_PATTERN)?.[0] ?? null;
+}
+function style(text, ...codes) {
+    return `${codes.join("")}${text}${ANSI_RESET}`;
 }
 export function ensureCloudflaredBinary() {
     if (!commandAvailable("cloudflared")) {
@@ -147,17 +157,24 @@ export async function renderTerminalQr(shareUrl) {
     });
 }
 export function formatRemoteBanner(input) {
+    const title = style("cdx remote", ANSI_BOLD, ANSI_BRIGHT_CYAN);
+    const mobileLinkLabel = style("Mobile link:", ANSI_BOLD, ANSI_CYAN);
+    const otpCodeLabel = style("OTP code:   ", ANSI_BOLD, ANSI_BRIGHT_YELLOW);
+    const otpExpiresLabel = style("OTP expires:", ANSI_BOLD, ANSI_CYAN);
+    const shareUrl = style(input.shareUrl, ANSI_UNDERLINE, ANSI_BRIGHT_CYAN);
+    const otpCode = style(input.otpCode, ANSI_BOLD, ANSI_BRIGHT_YELLOW);
+    const otpExpires = style(input.otpExpiresLabel, ANSI_BOLD);
     const lines = [
         "",
-        "cdx remote",
+        title,
         "",
-        `Mobile link: ${input.shareUrl}`,
-        `OTP code:    ${input.otpCode}`,
-        `OTP expires: ${input.otpExpiresLabel}`,
+        `${mobileLinkLabel} ${shareUrl}`,
+        `${otpCodeLabel} ${otpCode}`,
+        `${otpExpiresLabel} ${otpExpires}`,
         "",
-        "Cloudflare Quick Tunnel is convenient but should be treated as an external beta/testing path.",
-        "Share the link or scan the QR code from your phone.",
-        "Only trusted devices skip OTP on future sessions.",
+        style("Cloudflare Quick Tunnel is convenient but should be treated as an external beta/testing path.", ANSI_DIM),
+        style("Share the link or scan the QR code from your phone.", ANSI_DIM),
+        style("Only trusted devices skip OTP on future sessions.", ANSI_DIM),
         "",
     ];
     if (input.qrText.trim()) {

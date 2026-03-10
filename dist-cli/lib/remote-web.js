@@ -137,8 +137,9 @@ const els = {
   reconnectButton: document.querySelector('[data-reconnect-button]'),
   status: document.querySelector('[data-remote-status]'),
   remoteMessage: document.querySelector('[data-remote-message]'),
-  profile: document.querySelector('[data-profile]'),
-  mode: document.querySelector('[data-mode]'),
+  authIndicator: document.querySelector('[data-auth-status]'),
+  themeToggle: document.querySelector('[data-theme-toggle]'),
+  themePopover: document.querySelector('[data-theme-popover]'),
   themeButtons: Array.from(document.querySelectorAll('[data-theme-button]')),
   terminal: document.querySelector('[data-terminal]'),
   themeColor: document.querySelector('meta[name="theme-color"]'),
@@ -254,12 +255,13 @@ const setAuthMessage = (value, tone = 'neutral') => {
 };
 
 const setAuthState = (value) => {
-  if (!els.authStatus) {
+  if (!els.authIndicator) {
     return;
   }
   const next = value ? 'verified' : 'waiting';
-  els.authStatus.textContent = AUTH_LABELS[next];
-  els.authStatus.dataset.state = next === 'verified' ? 'good' : 'idle';
+  els.authIndicator.dataset.state = next === 'verified' ? 'good' : 'idle';
+  els.authIndicator.setAttribute('aria-label', AUTH_LABELS[next]);
+  els.authIndicator.setAttribute('title', AUTH_LABELS[next]);
 };
 
 const setRemoteStatus = (value) => {
@@ -268,8 +270,9 @@ const setRemoteStatus = (value) => {
   }
   const known = Object.prototype.hasOwnProperty.call(STATUS_LABELS, value);
   if (known) {
-    els.status.textContent = formatStatusLabel(value);
     els.status.dataset.state = getStatusTone(value);
+    els.status.setAttribute('aria-label', formatStatusLabel(value));
+    els.status.setAttribute('title', formatStatusLabel(value));
     setRemoteMessage('', 'neutral');
     return;
   }
@@ -287,8 +290,9 @@ const setRemoteStatus = (value) => {
     tone = 'warm';
   }
 
-  els.status.textContent = label;
   els.status.dataset.state = tone;
+  els.status.setAttribute('aria-label', label);
+  els.status.setAttribute('title', label);
   setRemoteMessage(value, tone === 'danger' ? 'warn' : 'neutral');
 };
 
@@ -305,6 +309,11 @@ const applyTheme = (theme) => {
     button.dataset.active = isActive ? 'true' : 'false';
     button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
   });
+  if (els.themeToggle) {
+    els.themeToggle.dataset.theme = nextTheme;
+    els.themeToggle.setAttribute('aria-label', \`Theme: \${nextTheme}\`);
+    els.themeToggle.setAttribute('title', \`Theme: \${nextTheme}\`);
+  }
   if (terminal) {
     terminal.options.theme = THEMES[nextTheme].terminal;
   }
@@ -329,12 +338,6 @@ const renderSnapshot = async (snapshot) => {
     return;
   }
 
-  if (els.profile) {
-    els.profile.textContent = snapshot.profileId;
-  }
-  if (els.mode) {
-    els.mode.textContent = snapshot.mode;
-  }
   setRemoteStatus(snapshot.finishedAt ? 'ended' : snapshot.status);
 
   const term = await ensureTerminal();
@@ -517,16 +520,44 @@ els.reconnectButton.addEventListener('click', async () => {
   connect();
 });
 
-if (els.profile) {
-  els.profile.textContent = CONFIG.profileId;
-}
-if (els.mode) {
-  els.mode.textContent = CONFIG.mode;
-}
-
 applyTheme(getStoredTheme());
 els.themeButtons.forEach((button) => {
-  button.addEventListener('click', () => applyTheme(button.dataset.themeButton || 'modern-dark'));
+  button.addEventListener('click', () => {
+    applyTheme(button.dataset.themeButton || 'modern-dark');
+    if (els.themePopover) {
+      els.themePopover.hidden = true;
+    }
+    if (els.themeToggle) {
+      els.themeToggle.setAttribute('aria-expanded', 'false');
+    }
+  });
+});
+
+if (els.themeToggle) {
+  els.themeToggle.addEventListener('click', () => {
+    if (!els.themePopover) {
+      return;
+    }
+    const nextHidden = !els.themePopover.hidden;
+    els.themePopover.hidden = nextHidden;
+    els.themeToggle.setAttribute('aria-expanded', nextHidden ? 'false' : 'true');
+  });
+}
+
+document.addEventListener('click', (event) => {
+  const target = event.target;
+  if (!(target instanceof Node)) {
+    return;
+  }
+  if (
+    els.themePopover &&
+    els.themeToggle &&
+    !els.themePopover.contains(target) &&
+    !els.themeToggle.contains(target)
+  ) {
+    els.themePopover.hidden = true;
+    els.themeToggle.setAttribute('aria-expanded', 'false');
+  }
 });
 
 (async () => {
@@ -541,7 +572,6 @@ els.themeButtons.forEach((button) => {
 }
 export function renderRemotePage(config) {
     const safeProfile = escapeHtml(config.profileId);
-    const safeMode = escapeHtml(config.mode);
     const safeExpiry = escapeHtml(config.otpExpiresLabel);
     return `<!doctype html>
 <html lang="ko" data-theme="modern-dark">
@@ -554,15 +584,15 @@ export function renderRemotePage(config) {
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="preconnect" href="https://cdn.jsdelivr.net" />
-    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
     <style>
       :root {
         color-scheme: dark;
         --bg: #0d1319;
-        --bg-glow: rgba(123, 231, 220, 0.2);
-        --surface: rgba(13, 19, 25, 0.88);
-        --surface-strong: rgba(17, 25, 33, 0.96);
-        --surface-soft: rgba(20, 32, 43, 0.9);
+        --bg-glow: rgba(123, 231, 220, 0.12);
+        --surface: rgba(10, 15, 20, 0.9);
+        --surface-strong: rgba(12, 19, 25, 0.96);
+        --surface-soft: rgba(16, 24, 32, 0.92);
         --line: rgba(160, 199, 222, 0.14);
         --line-strong: rgba(123, 231, 220, 0.32);
         --text: #eef8ff;
@@ -572,13 +602,13 @@ export function renderRemotePage(config) {
         --danger: #ff9d8b;
         --good: #8fe7b7;
         --warm: #f3d88a;
-        --shadow: 0 30px 90px rgba(0, 0, 0, 0.34);
-        --shadow-soft: 0 18px 40px rgba(0, 0, 0, 0.22);
+        --shadow: 0 22px 70px rgba(0, 0, 0, 0.28);
+        --shadow-soft: 0 10px 26px rgba(0, 0, 0, 0.18);
         --terminal-bg: #071018;
-        --radius-xl: 30px;
-        --radius-lg: 24px;
-        --radius-md: 18px;
-        --radius-sm: 14px;
+        --radius-xl: 24px;
+        --radius-lg: 18px;
+        --radius-md: 14px;
+        --radius-sm: 10px;
       }
 
       :root[data-theme="sepia"] {
@@ -597,8 +627,8 @@ export function renderRemotePage(config) {
         --danger: #ffb39e;
         --good: #d6c38e;
         --warm: #f7deb0;
-        --shadow: 0 30px 90px rgba(0, 0, 0, 0.42);
-        --shadow-soft: 0 18px 42px rgba(0, 0, 0, 0.3);
+        --shadow: 0 22px 70px rgba(0, 0, 0, 0.34);
+        --shadow-soft: 0 12px 28px rgba(0, 0, 0, 0.24);
         --terminal-bg: #1b140f;
       }
 
@@ -618,8 +648,8 @@ export function renderRemotePage(config) {
         --danger: #b85c49;
         --good: #138a83;
         --warm: #a9772b;
-        --shadow: 0 24px 72px rgba(11, 43, 42, 0.14);
-        --shadow-soft: 0 14px 30px rgba(11, 43, 42, 0.12);
+        --shadow: 0 20px 58px rgba(11, 43, 42, 0.12);
+        --shadow-soft: 0 10px 24px rgba(11, 43, 42, 0.1);
         --terminal-bg: #08201d;
       }
 
@@ -642,9 +672,8 @@ export function renderRemotePage(config) {
         color: var(--text);
         font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
         background:
-          radial-gradient(circle at top left, var(--bg-glow), transparent 28%),
-          radial-gradient(circle at right 10%, rgba(255, 255, 255, 0.18), transparent 22%),
-          linear-gradient(180deg, rgba(255, 255, 255, 0.14), transparent 34%),
+          radial-gradient(circle at top left, var(--bg-glow), transparent 24%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 28%),
           var(--bg);
       }
 
@@ -652,11 +681,10 @@ export function renderRemotePage(config) {
         content: "";
         position: fixed;
         inset: 0;
-        background-image:
-          linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
-        background-size: 24px 24px;
-        opacity: 0.14;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 20%),
+          radial-gradient(circle at 20% 0%, rgba(255, 255, 255, 0.04), transparent 18%);
+        opacity: 0.5;
         pointer-events: none;
       }
 
@@ -679,9 +707,9 @@ export function renderRemotePage(config) {
 
       h1,
       h2,
+      h3,
       p {
         margin: 0;
-        text-wrap: balance;
       }
 
       strong,
@@ -699,31 +727,31 @@ export function renderRemotePage(config) {
 
       main {
         position: relative;
-        width: min(100%, 1180px);
+        width: min(100%, 1100px);
         margin: 0 auto;
         padding:
-          calc(16px + env(safe-area-inset-top))
+          calc(10px + env(safe-area-inset-top))
           max(14px, env(safe-area-inset-right))
-          calc(24px + env(safe-area-inset-bottom))
+          calc(14px + env(safe-area-inset-bottom))
           max(14px, env(safe-area-inset-left));
       }
 
       .device-frame {
         display: grid;
-        gap: 14px;
-        padding: 14px;
+        gap: 10px;
+        padding: 10px;
         border: 1px solid var(--line);
         border-radius: var(--radius-xl);
-        background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 24%),
-          var(--surface);
+        background: var(--surface);
         box-shadow: var(--shadow);
         backdrop-filter: blur(18px);
       }
 
       .chrome,
-      .session-rail,
-      .theme-switch,
+      .toolbar-actions,
+      .toolbar-status,
+      .theme-picker,
+      .theme-popover,
       .utility-row,
       .terminal-header {
         display: flex;
@@ -737,63 +765,56 @@ export function renderRemotePage(config) {
       }
 
       .chrome {
-        flex-direction: column;
-        align-items: flex-start;
-        padding: 6px 2px 2px;
+        padding: 2px;
       }
 
       .brand-lockup {
         display: flex;
         align-items: center;
-        gap: 14px;
+        gap: 10px;
         min-width: 0;
       }
 
       .brand-mark {
         display: grid;
         place-items: center;
-        width: 62px;
-        height: 62px;
+        width: 36px;
+        height: 36px;
         flex: 0 0 auto;
-        border-radius: 20px;
+        border-radius: 12px;
         border: 1px solid var(--line-strong);
         background:
-          linear-gradient(145deg, rgba(255, 255, 255, 0.34), transparent 56%),
+          linear-gradient(145deg, rgba(255, 255, 255, 0.18), transparent 56%),
           linear-gradient(145deg, var(--accent), color-mix(in oklab, var(--accent) 56%, white));
         color: white;
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), var(--shadow-soft);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
         font-family: "IBM Plex Mono", monospace;
-        font-size: 1.2rem;
+        font-size: 0.85rem;
         font-weight: 600;
       }
 
       .eyebrow {
-        margin-bottom: 0.45rem;
         color: var(--muted);
-        font-size: 0.72rem;
+        font-size: 0.7rem;
         font-weight: 600;
-        letter-spacing: 0.18em;
+        letter-spacing: 0.14em;
         text-transform: uppercase;
       }
 
-      .brand-lockup h1,
-      .hero-card h2,
-      .terminal-header h2 {
-        font-family: "Fraunces", serif;
-        letter-spacing: -0.04em;
-        line-height: 0.98;
-      }
-
       .brand-lockup h1 {
-        font-size: clamp(2rem, 10vw, 3.9rem);
+        font-size: 1rem;
+        line-height: 1.1;
+        letter-spacing: -0.02em;
       }
 
-      .theme-switch,
-      .session-rail {
-        flex-wrap: wrap;
+      .toolbar-actions {
+        gap: 8px;
+        margin-left: auto;
       }
 
+      .theme-toggle,
       .theme-button,
+      .status-icon,
       .meta-pill,
       .status-pill,
       .primary-button,
@@ -811,24 +832,99 @@ export function renderRemotePage(config) {
           color 160ms ease;
       }
 
+      .toolbar-status {
+        gap: 6px;
+      }
+
+      .status-icon,
+      .theme-toggle,
       .theme-button {
-        width: auto;
-        min-height: 2.6rem;
-        padding: 0.62rem 0.9rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2rem;
+        height: 2rem;
+        padding: 0;
+        border-radius: 999px;
         background: var(--surface-soft);
         color: var(--muted);
       }
 
-      .theme-button[data-active="true"],
-      .theme-button:hover {
-        color: var(--text);
-        border-color: var(--line-strong);
-        background: color-mix(in oklab, var(--accent) 10%, var(--surface-soft));
+      .status-icon::before,
+      .theme-toggle::before,
+      .theme-button::before {
+        content: "";
+        width: 0.62rem;
+        height: 0.62rem;
+        border-radius: 999px;
+        background: currentColor;
+      }
+
+      .status-icon {
+        border-color: color-mix(in oklab, var(--line) 70%, transparent);
+      }
+
+      .status-icon[data-state="good"] {
+        color: var(--good);
+        border-color: color-mix(in oklab, var(--good) 34%, var(--line));
+      }
+
+      .status-icon[data-state="warm"] {
+        color: var(--warm);
+        border-color: color-mix(in oklab, var(--warm) 34%, var(--line));
+      }
+
+      .status-icon[data-state="danger"] {
+        color: var(--danger);
+        border-color: color-mix(in oklab, var(--danger) 38%, var(--line));
+      }
+
+      .theme-picker {
+        position: relative;
+        gap: 0;
+      }
+
+      .theme-toggle {
+        background: var(--surface-soft);
+      }
+
+      .theme-toggle[data-theme="modern-dark"]::before,
+      .theme-button[data-theme-button="modern-dark"]::before {
+        background: #7be7dc;
+      }
+
+      .theme-toggle[data-theme="sepia"]::before,
+      .theme-button[data-theme-button="sepia"]::before {
+        background: #e8c089;
+      }
+
+      .theme-toggle[data-theme="teal"]::before,
+      .theme-button[data-theme-button="teal"]::before {
+        background: #138a83;
+      }
+
+      .theme-popover {
+        position: absolute;
+        top: calc(100% + 8px);
+        right: 0;
+        padding: 6px;
+        gap: 6px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--surface-strong);
         box-shadow: var(--shadow-soft);
       }
 
-      .session-rail {
-        padding: 0 2px 4px;
+      .theme-popover[hidden] {
+        display: none;
+      }
+
+      .theme-button[data-active="true"],
+      .theme-button:hover,
+      .theme-toggle:hover {
+        border-color: var(--line-strong);
+        box-shadow: var(--shadow-soft);
+        transform: translateY(-1px);
       }
 
       .meta-pill,
@@ -836,15 +932,16 @@ export function renderRemotePage(config) {
         display: inline-flex;
         align-items: center;
         gap: 0.5rem;
-        min-height: 2.55rem;
-        padding: 0.65rem 0.9rem;
+        min-height: 2.2rem;
+        padding: 0.52rem 0.72rem;
         background: var(--surface-soft);
         color: var(--muted);
+        font-size: 0.82rem;
       }
 
       .meta-pill strong {
         color: var(--text);
-        font-size: 0.78rem;
+        font-size: 0.7rem;
         font-weight: 600;
         letter-spacing: 0.1em;
         text-transform: uppercase;
@@ -879,10 +976,9 @@ export function renderRemotePage(config) {
       .auth-layout,
       .remote-layout {
         display: grid;
-        gap: 14px;
+        gap: 10px;
       }
 
-      .hero-card,
       .form-card,
       .terminal-panel,
       .composer-panel {
@@ -892,22 +988,19 @@ export function renderRemotePage(config) {
         box-shadow: var(--shadow-soft);
       }
 
-      .hero-card,
       .form-card,
       .composer-panel {
-        padding: 18px;
+        padding: 14px;
       }
 
-      .hero-card {
+      .auth-layout {
+        max-width: 28rem;
+        margin: 0 auto;
+      }
+
+      .auth-card {
         display: grid;
-        gap: 0.9rem;
-        min-height: 15rem;
-        align-content: start;
-      }
-
-      .hero-card h2,
-      .terminal-header h2 {
-        font-size: clamp(1.7rem, 7vw, 2.8rem);
+        gap: 12px;
       }
 
       .copy,
@@ -919,10 +1012,23 @@ export function renderRemotePage(config) {
         line-height: 1.55;
       }
 
-      .hero-meta {
+      .auth-head {
         display: flex;
-        flex-wrap: wrap;
-        gap: 0.7rem;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .auth-head h2,
+      .terminal-header h2 {
+        font-size: 1.15rem;
+        line-height: 1.1;
+        letter-spacing: -0.02em;
+      }
+
+      .otp-meta {
+        display: grid;
+        gap: 8px;
       }
 
       .form-card form,
@@ -956,20 +1062,20 @@ export function renderRemotePage(config) {
 
       .otp-input,
       .composer-input {
-        padding: 15px 18px;
+        padding: 14px 16px;
         color: var(--text);
         background: color-mix(in oklab, var(--surface-soft) 88%, transparent);
       }
 
       .otp-input {
         font-family: "IBM Plex Mono", monospace;
-        font-size: clamp(1.3rem, 8vw, 1.75rem);
-        letter-spacing: 0.28em;
+        font-size: clamp(1.2rem, 8vw, 1.55rem);
+        letter-spacing: 0.24em;
         text-align: center;
       }
 
       .composer-input {
-        min-height: 11rem;
+        min-height: 7.4rem;
         border-radius: var(--radius-md);
         resize: vertical;
       }
@@ -982,8 +1088,8 @@ export function renderRemotePage(config) {
       .primary-button,
       .secondary-button,
       .danger-button {
-        min-height: 3.25rem;
-        padding: 0.9rem 1rem;
+        min-height: 3rem;
+        padding: 0.82rem 1rem;
       }
 
       .primary-button {
@@ -1012,12 +1118,12 @@ export function renderRemotePage(config) {
       }
 
       .message {
-        min-height: 1.5rem;
-        font-size: 0.92rem;
+        min-height: 1.35rem;
+        font-size: 0.88rem;
       }
 
       .message--remote {
-        padding: 0 4px 2px;
+        padding: 0 4px;
       }
 
       .message[data-tone="warn"] {
@@ -1033,51 +1139,68 @@ export function renderRemotePage(config) {
       }
 
       .terminal-header {
-        padding: 16px 18px 10px;
+        padding: 12px 14px 10px;
         border-bottom: 1px solid var(--line);
+        align-items: flex-start;
       }
 
       .terminal-header h2 {
-        font-size: clamp(1.35rem, 5vw, 2rem);
+        font-size: 1rem;
       }
 
       .terminal-note {
-        font-size: 0.9rem;
+        font-size: 0.78rem;
+        text-align: right;
       }
 
       .terminal-shell {
-        min-height: clamp(19rem, 52vh, 38rem);
-        padding: 6px;
+        min-height: clamp(22rem, 62vh, 42rem);
+        padding: 4px;
         background: var(--terminal-bg);
       }
 
       .terminal-host {
-        min-height: clamp(19rem, 52vh, 38rem);
+        min-height: clamp(22rem, 62vh, 42rem);
       }
 
       .composer-panel {
         display: grid;
-        gap: 14px;
-      }
-
-      .utility-row {
         gap: 12px;
       }
 
-      .utility-row > * {
+      .utility-row {
+        gap: 10px;
+      }
+
+      .utility-row > *:first-child {
+        flex: 0.9 1 0;
+      }
+
+      .utility-row > *:last-child {
         flex: 1 1 0;
+      }
+
+      .prompt-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .prompt-head h3 {
+        font-size: 0.95rem;
+        line-height: 1.1;
+        letter-spacing: -0.02em;
+      }
+
+      .prompt-deck {
+        display: grid;
+        gap: 12px;
       }
 
       @media (min-width: 960px) {
         .chrome {
-          flex-direction: row;
-          justify-content: space-between;
-          align-items: flex-end;
-        }
-
-        .auth-layout {
-          grid-template-columns: minmax(0, 1fr) minmax(22rem, 0.82fr);
-          align-items: stretch;
+          align-items: center;
         }
       }
 
@@ -1089,39 +1212,53 @@ export function renderRemotePage(config) {
 
         .composer-panel {
           position: sticky;
-          top: 16px;
+          top: 10px;
         }
       }
 
       @media (max-width: 719px) {
         main {
           padding:
-            calc(10px + env(safe-area-inset-top))
+            calc(8px + env(safe-area-inset-top))
             max(10px, env(safe-area-inset-right))
-            calc(16px + env(safe-area-inset-bottom))
+            calc(12px + env(safe-area-inset-bottom))
             max(10px, env(safe-area-inset-left));
         }
 
         .device-frame {
-          padding: 10px;
-          border-radius: 22px;
+          padding: 8px;
+          border-radius: 18px;
         }
 
         .brand-mark {
-          width: 54px;
-          height: 54px;
-          border-radius: 18px;
-          font-size: 1.05rem;
+          width: 32px;
+          height: 32px;
+          border-radius: 10px;
+          font-size: 0.78rem;
         }
 
-        .hero-card,
         .form-card,
         .composer-panel {
-          padding: 16px;
+          padding: 12px;
         }
 
         .utility-row {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+        }
+
+        .chrome {
+          gap: 8px;
+          align-items: center;
+        }
+
+        .terminal-header {
           flex-direction: column;
+          gap: 6px;
+        }
+
+        .terminal-note {
+          text-align: left;
         }
       }
 
@@ -1142,43 +1279,53 @@ export function renderRemotePage(config) {
       <section class="device-frame">
         <header class="chrome">
           <div class="brand-lockup">
-              <div class="brand-mark">cdx</div>
-            <div>
-              <p class="eyebrow">원격 제어</p>
-              <h1>손안의 Codex</h1>
+            <div class="brand-mark">cdx</div>
+          </div>
+
+          <div class="toolbar-actions">
+            <div class="toolbar-status" aria-label="Session status">
+              <span class="status-icon" data-remote-status data-state="idle" aria-label="연결 대기" title="연결 대기"></span>
+              <span class="status-icon" data-auth-status data-state="idle" aria-label="인증 대기" title="인증 대기"></span>
+            </div>
+
+            <div class="theme-picker">
+              <button
+                class="theme-toggle"
+                type="button"
+                data-theme-toggle
+                data-theme="modern-dark"
+                aria-label="Theme: modern-dark"
+                aria-expanded="false"
+                title="Theme: modern-dark"
+              ></button>
+              <div class="theme-popover" data-theme-popover hidden role="group" aria-label="Theme">
+                <button class="theme-button" type="button" data-theme-button="modern-dark" data-active="true" aria-pressed="true" aria-label="Modern Dark" title="Modern Dark"></button>
+                <button class="theme-button" type="button" data-theme-button="sepia" data-active="false" aria-pressed="false" aria-label="Sepia" title="Sepia"></button>
+                <button class="theme-button" type="button" data-theme-button="teal" data-active="false" aria-pressed="false" aria-label="Teal" title="Teal"></button>
+              </div>
             </div>
           </div>
-
-          <div class="theme-switch" role="group" aria-label="Theme">
-            <button class="theme-button" type="button" data-theme-button="modern-dark" data-active="true" aria-pressed="true">Modern Dark</button>
-            <button class="theme-button" type="button" data-theme-button="sepia" data-active="false" aria-pressed="false">Sepia</button>
-            <button class="theme-button" type="button" data-theme-button="teal" data-active="false" aria-pressed="false">Teal</button>
-          </div>
         </header>
-
-        <div class="session-rail" aria-label="Session">
-          <div class="meta-pill"><strong>Profile</strong><span data-profile>${safeProfile}</span></div>
-          <div class="meta-pill"><strong>Mode</strong><span data-mode>${safeMode}</span></div>
-          <div class="status-pill" data-remote-status data-state="idle">연결 대기</div>
-          <div class="status-pill" data-auth-status data-state="idle">인증 대기</div>
-        </div>
         <p class="message message--remote" data-remote-message role="status" aria-live="polite"></p>
 
         <section class="step" data-step="auth" ${config.otpRequired ? "" : "hidden"}>
           <div class="auth-layout">
-            <article class="hero-card">
-              <div>
-                <p class="eyebrow">보안 연결</p>
-                <h2>6자리 코드로 바로 연결</h2>
+            <article class="form-card auth-card">
+              <div class="auth-head">
+                <div>
+                  <p class="eyebrow">보안 확인</p>
+                  <h2>손안의 Codex</h2>
+                </div>
+                <div class="status-pill" data-state="warm">OTP 필요</div>
               </div>
-              <p class="copy">데스크톱에 표시된 코드를 입력하면 이 세션을 바로 제어할 수 있습니다.</p>
-              <div class="hero-meta">
+
+              <p class="copy">데스크톱에 표시된 6자리 코드를 입력하면 바로 연결됩니다.</p>
+
+              <div class="otp-meta">
                 <div class="meta-pill"><strong>Profile</strong><span>${safeProfile}</span></div>
                 <div class="meta-pill"><strong>만료</strong><span>${safeExpiry}</span></div>
               </div>
-            </article>
 
-            <article class="form-card">
               <form data-otp-form>
                 <div class="field-head">
                   <label class="field-label" for="otp">인증 코드</label>
@@ -1209,10 +1356,10 @@ export function renderRemotePage(config) {
             <article class="terminal-panel">
               <div class="terminal-header">
                 <div>
-                  <p class="eyebrow">실시간 세션</p>
-                  <h2>작업 중인 터미널</h2>
+                  <p class="eyebrow">live</p>
+                  <h2>터미널</h2>
                 </div>
-                <p class="terminal-note">상태와 출력은 자동으로 갱신됩니다.</p>
+                <p class="terminal-note">출력과 상태는 자동 갱신됩니다.</p>
               </div>
               <div class="terminal-shell">
                 <div class="terminal-host" data-terminal></div>
@@ -1220,23 +1367,26 @@ export function renderRemotePage(config) {
             </article>
 
             <article class="composer-panel">
-              <form data-prompt-form>
-                <div class="field-head">
-                  <label class="field-label" for="prompt">프롬프트</label>
+              <div class="prompt-deck">
+                <div class="prompt-head">
+                  <h3>입력</h3>
                   <span class="hint">Ctrl / Cmd + Enter</span>
                 </div>
-                <textarea
-                  class="composer-input"
-                  id="prompt"
-                  name="prompt"
-                  data-prompt-input
-                  autocomplete="off"
-                  autocapitalize="off"
-                  spellcheck="false"
-                  placeholder="Codex에 보낼 프롬프트…"
-                ></textarea>
-                <button class="primary-button" type="submit" data-prompt-button>프롬프트 보내기</button>
-              </form>
+
+                <form data-prompt-form>
+                  <textarea
+                    class="composer-input"
+                    id="prompt"
+                    name="prompt"
+                    data-prompt-input
+                    autocomplete="off"
+                    autocapitalize="off"
+                    spellcheck="false"
+                    placeholder="Codex에 보낼 프롬프트…"
+                  ></textarea>
+                  <button class="primary-button" type="submit" data-prompt-button>프롬프트 보내기</button>
+                </form>
+              </div>
 
               <div class="utility-row">
                 <button class="danger-button" type="button" data-interrupt-button>중단</button>

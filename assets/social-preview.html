@@ -292,6 +292,69 @@
         transform: rotate(-7deg);
       }
 
+      .phone-float {
+        position: absolute;
+        right: -18px;
+        top: 52px;
+        width: 146px;
+        padding: 10px;
+        border: 1px solid rgba(36, 29, 26, 0.08);
+        border-radius: 28px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 247, 239, 0.72)),
+          rgba(255, 250, 244, 0.92);
+        box-shadow: 0 22px 44px rgba(91, 57, 38, 0.14);
+        transform: rotate(8deg);
+      }
+
+      .phone-notch {
+        width: 54px;
+        height: 6px;
+        margin: 0 auto 10px;
+        border-radius: 999px;
+        background: rgba(36, 29, 26, 0.16);
+      }
+
+      .phone-screen {
+        padding: 12px;
+        border-radius: 20px;
+        background:
+          radial-gradient(circle at 30% 18%, rgba(191, 92, 49, 0.18), transparent 42%),
+          linear-gradient(180deg, #fffaf5 0%, #f2e4d8 100%);
+      }
+
+      .phone-screen small {
+        display: block;
+        margin-bottom: 8px;
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .phone-screen strong {
+        display: block;
+        margin-bottom: 10px;
+        font-size: 20px;
+        line-height: 0.94;
+        letter-spacing: -0.04em;
+      }
+
+      .phone-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 9px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.82);
+        border: 1px solid rgba(36, 29, 26, 0.08);
+        color: var(--accent-deep);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
       .panel-top {
         display: flex;
         align-items: center;
@@ -334,9 +397,9 @@
         border-radius: 999px;
         background: rgba(255, 255, 255, 0.72);
         border: 1px solid rgba(36, 29, 26, 0.08);
-        color: var(--muted);
+        color: var(--accent-deep);
         font-size: 13px;
-        font-weight: 600;
+        font-weight: 700;
       }
 
       .hero-card {
@@ -465,25 +528,25 @@
     <div class="canvas">
       <section class="left">
         <div>
-          <p class="eyebrow">Codex Switchboard</p>
-          <h1>Multi-account control for Codex.</h1>
+          <p class="eyebrow">Codex Remote Relay</p>
+          <h1>Keep Codex going from your phone.</h1>
           <p class="lead">
-            Run the right profile, inspect live usage, and keep shared AGENTS wiring visible from one local-first dashboard.
+            Start on desktop, open the remote link on mobile, and keep prompts, output, and interrupt controls within reach.
           </p>
 
           <div class="brand-row">
             <div class="mark">cdx</div>
             <div class="brand-copy">
-              <strong>Built for operators, not alias folklore</strong>
-              <span>CLI + dashboard for profile switching, usage visibility, and repo setup hygiene.</span>
+              <strong>Remote-first, still local-first</strong>
+              <span>CLI + mobile web control surface for QR handoff, live output, and safe session continuation.</span>
             </div>
           </div>
 
           <div class="chip-row">
-            <div class="chip">Profile-aware runs</div>
-            <div class="chip">Live usage visibility</div>
-            <div class="chip">Shared AGENTS.md</div>
-            <div class="chip">Warm local dashboard</div>
+            <div class="chip">Mobile remote access</div>
+            <div class="chip">QR link handoff</div>
+            <div class="chip">Live output + interrupt</div>
+            <div class="chip">Trusted device flow</div>
           </div>
         </div>
 
@@ -491,18 +554,18 @@
           <div class="status-strip">
             <div class="status-card">
               <p class="label">Mode</p>
-              <strong>Local-first</strong>
-              <span>No hosted control plane</span>
+              <strong>Remote</strong>
+              <span>Desktop to phone in one hop</span>
             </div>
             <div class="status-card">
               <p class="label">Scope</p>
-              <strong>CLI + Web</strong>
-              <span>One action layer, two surfaces</span>
+              <strong>CLI + Mobile Web</strong>
+              <span>One session, two screens</span>
             </div>
             <div class="status-card">
               <p class="label">Focus</p>
-              <strong>Profiles</strong>
-              <span>Usage, login, runs, AGENTS</span>
+              <strong>Continuation</strong>
+              <span>Prompt, output, reconnect, interrupt</span>
             </div>
           </div>
         </div>
@@ -511,70 +574,78 @@
       <section class="right">
         <div class="stack">
           <div class="panel ghost"></div>
+          <div class="phone-float">
+            <div class="phone-notch"></div>
+            <div class="phone-screen">
+              <small>Phone View</small>
+              <strong>Remote linked.</strong>
+              <div class="phone-chip">tap to resume</div>
+            </div>
+          </div>
           <div class="panel main">
             <div class="panel-top">
               <div class="panel-title">
                 <div class="panel-mark">cdx</div>
                 <div>
-                  <strong>Overview</strong>
-                  <span>CCS-inspired dashboard</span>
+                  <strong>Remote Session</strong>
+                  <span>Desktop + mobile handoff</span>
                 </div>
               </div>
-              <div class="pill">3 profiles connected</div>
+              <div class="pill">phone linked</div>
             </div>
 
             <div class="hero-card">
-              <p>Why cdx</p>
-              <h2>See the account state before you start the session.</h2>
+              <p>Mobile Remote</p>
+              <h2>Send prompts, watch output, and interrupt without staying at your desk.</h2>
             </div>
 
             <div class="metric-grid">
               <div class="metric">
-                <small>Run Picker</small>
-                <strong>Ready</strong>
-                <span>Start the right profile fast</span>
+                <small>Invite</small>
+                <strong>QR Live</strong>
+                <span>Open the session on your phone fast</span>
               </div>
               <div class="metric">
-                <small>Usage</small>
-                <strong>82%</strong>
-                <span>5h limit left on work</span>
+                <small>Access</small>
+                <strong>OTP</strong>
+                <span>First-time device verification enabled</span>
               </div>
               <div class="metric">
-                <small>AGENTS</small>
-                <strong>Linked</strong>
-                <span>Shared rules in place</span>
-              </div>
-              <div class="metric">
-                <small>Doctor</small>
+                <small>Output</small>
                 <strong>Live</strong>
-                <span>Refresh setup checks</span>
+                <span>Recent terminal output stays visible</span>
+              </div>
+              <div class="metric">
+                <small>Control</small>
+                <strong>Fast</strong>
+                <span>Reconnect and interrupt when needed</span>
               </div>
             </div>
 
             <div class="timeline">
               <div class="timeline-item">
-                <code>work</code>
+                <code>01</code>
                 <div>
-                  <strong>Codex run session</strong>
-                  <span>Launching with the correct CODEX_HOME</span>
+                  <strong>Start `cdx remote` on desktop</strong>
+                  <span>Session launches locally before the handoff</span>
                 </div>
-                <div class="badge good">running</div>
+                <div class="badge good">ready</div>
               </div>
               <div class="timeline-item">
-                <code>team</code>
+                <code>02</code>
                 <div>
-                  <strong>Usage snapshot fetched</strong>
-                  <span>Backend usage is reachable</span>
+                  <strong>Open the mobile link or scan QR</strong>
+                  <span>Trusted devices can reconnect faster later</span>
                 </div>
-                <div class="badge good">healthy</div>
+                <div class="badge good">linked</div>
               </div>
               <div class="timeline-item">
-                <code>global</code>
+                <code>03</code>
                 <div>
-                  <strong>AGENTS.md prepared</strong>
-                  <span>Shared instructions ready across repos</span>
+                  <strong>Continue from phone</strong>
+                  <span>Prompt, recent output, reconnect, and interrupt stay in reach</span>
                 </div>
-                <div class="badge warn">warm</div>
+                <div class="badge warn">live</div>
               </div>
             </div>
           </div>

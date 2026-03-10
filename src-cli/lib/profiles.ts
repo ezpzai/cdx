@@ -20,6 +20,24 @@ export interface ProfileRecord {
   auth: AuthSummary | null;
 }
 
+function hasUsableAuth(profile: ProfileRecord): boolean {
+  return Boolean(profile.auth?.email || profile.auth?.accessToken || profile.auth?.accountId);
+}
+
+function compareProfiles(left: ProfileRecord, right: ProfileRecord): number {
+  const leftAuth = hasUsableAuth(left);
+  const rightAuth = hasUsableAuth(right);
+  if (leftAuth !== rightAuth) {
+    return leftAuth ? -1 : 1;
+  }
+
+  if (left.source !== right.source) {
+    return left.source === "legacy" ? -1 : 1;
+  }
+
+  return left.id.localeCompare(right.id, undefined, { numeric: true });
+}
+
 interface AuthFileShape {
   last_refresh?: string;
   tokens?: {
@@ -119,11 +137,12 @@ export async function listProfiles(): Promise<ProfileRecord[]> {
   const profiles = [...(await listModernProfiles()), ...(await listLegacyProfiles())];
   const deduped = new Map<string, ProfileRecord>();
   for (const profile of profiles) {
-    if (!deduped.has(profile.id)) {
+    const existing = deduped.get(profile.id);
+    if (!existing || compareProfiles(profile, existing) < 0) {
       deduped.set(profile.id, profile);
     }
   }
-  return [...deduped.values()];
+  return [...deduped.values()].sort(compareProfiles);
 }
 
 export async function resolveProfile(id: string): Promise<ProfileRecord | null> {

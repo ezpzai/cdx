@@ -63,7 +63,10 @@ export async function getDashboardPayload(cwd: string): Promise<DashboardPayload
   const usage = await Promise.all(
     profiles.map(async (profile) => {
       try {
-        const snapshot = await fetchCodexUsage(profile);
+        const snapshot = await fetchCodexUsage(profile, {
+          allowStatusFallback: false,
+          timeoutMs: 2_500,
+        });
         return {
           profileId: snapshot.profile,
           account: snapshot.account,

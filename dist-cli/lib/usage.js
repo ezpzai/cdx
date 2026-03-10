@@ -2,6 +2,7 @@ import { fetchCodexStatus } from "./codex.js";
 const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 const CODEX_USAGE_TIMEOUT_MS = 12_000;
 const USER_AGENT = "codex_cli_rs/0.76.0 (Debian 13.0.0; x86_64) WindowsTerminal";
+const REMOTE_USAGE_TIMEOUT_MS = 2_500;
 function normalizeWindow(input) {
     if (!input) {
         return null;
@@ -51,14 +52,14 @@ function toUsageSnapshotFromStatus(profile, status) {
         fetchedAt: new Date().toISOString(),
     };
 }
-async function fetchBackendUsage(profile) {
+async function fetchBackendUsage(profile, timeoutMs = CODEX_USAGE_TIMEOUT_MS) {
     const accessToken = profile.auth?.accessToken;
     const accountId = profile.auth?.accountId;
     if (!accessToken || !accountId) {
         throw new Error(`Profile ${profile.id} is missing auth tokens. Run \`cdx login ${profile.id}\`.`);
     }
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), CODEX_USAGE_TIMEOUT_MS);
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     let response;
     try {
         response = await fetch(CODEX_USAGE_URL, {
@@ -99,11 +100,16 @@ async function fetchBackendUsage(profile) {
         fetchedAt: new Date().toISOString(),
     };
 }
-export async function fetchCodexUsage(profile) {
+export async function fetchCodexUsage(profile, options = {}) {
+    const allowStatusFallback = options.allowStatusFallback ?? true;
+    const timeoutMs = options.timeoutMs ?? CODEX_USAGE_TIMEOUT_MS;
     try {
-        return await fetchBackendUsage(profile);
+        return await fetchBackendUsage(profile, timeoutMs);
     }
     catch (backendError) {
+        if (!allowStatusFallback) {
+            throw backendError;
+        }
         try {
             const status = await fetchCodexStatus(profile);
             return toUsageSnapshotFromStatus(profile, status);
@@ -111,5 +117,16 @@ export async function fetchCodexUsage(profile) {
         catch {
             throw backendError;
         }
+    }
+}
+export async function fetchRemotePreflightUsage(profile) {
+    try {
+        return await fetchCodexUsage(profile, {
+            allowStatusFallback: false,
+            timeoutMs: REMOTE_USAGE_TIMEOUT_MS,
+        });
+    }
+    catch {
+        return null;
     }
 }

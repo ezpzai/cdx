@@ -21,12 +21,31 @@
 
 - Node.js 20+
 - Codex 설치 완료 `npm install -g @openai/codex`
+- `cloudflared` 설치 필요
 - Linux, macOS 지원
 
 ### 설치
 
 ```bash
 npm install -g @ezpzai/cdx
+```
+
+### Cloudflare Quick Tunnel 설치
+
+`cdx remote`는 기본적으로 Cloudflare Quick Tunnel을 사용합니다.
+
+macOS:
+
+```bash
+brew install cloudflared
+```
+
+Linux:
+
+```bash
+curl -Lo cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+chmod +x cloudflared
+sudo mv cloudflared /usr/local/bin/
 ```
 
 ### 첫 실행
@@ -42,11 +61,11 @@ cdx usage // 사용량 확인
 
 | 명령 | 설명 |
 | --- | --- |
-| `cdx remote [profile] [codex args...] [--mode <safe|balanced|yolo>] [--tunnel <cloudflare|none>] [--no-qr] [--lan]` | 데스크톱에서 실행한 Codex 세션을 모바일 웹으로 이어 붙입니다. |
-| `cdx run [profile] [codex args...] [--mode <safe|balanced|yolo>]` | 선택한 프로필의 `CODEX_HOME`으로 Codex를 실행합니다. |
+| `cdx remote [profile] [codex args...] [--mode <safe\|balanced\|yolo>] [--tunnel <cloudflare\|none>] [--no-qr] [--lan]` | 데스크톱에서 실행한 Codex 세션을 모바일 웹으로 이어 붙입니다. |
+| `cdx run [profile] [codex args...] [--mode <safe\|balanced\|yolo>]` | 선택한 프로필의 `CODEX_HOME`으로 Codex를 실행합니다. |
 | `cdx usage [profile] [--json]` | 프로필별 auth 및 quota 상태를 확인합니다. |
 | `cdx mode` | 현재 기본 실행 모드를 확인합니다. |
-| `cdx mode set <safe|balanced|yolo> [--profile <profile>]` | 전역 또는 프로필별 기본 실행 모드를 저장합니다. |
+| `cdx mode set <safe\|balanced\|yolo> [--profile <profile>]` | 전역 또는 프로필별 기본 실행 모드를 저장합니다. |
 | `cdx login <profile>` | 새 프로필을 만들거나 기존 프로필로 로그인합니다. |
 | `cdx logout <profile>` | 프로필 로그아웃을 시작합니다. |
 | `cdx ls` | 감지된 프로필 목록을 보여줍니다. |
@@ -59,6 +78,4 @@ cdx usage // 사용량 확인
 - 외부 링크: `cdx remote <profile>`
 - 같은 Wi-Fi / LAN: `cdx remote <profile> --tunnel none --lan`
 - 로컬 전용: `cdx remote <profile> --tunnel none`
-
-
 
