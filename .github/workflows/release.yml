@@ -2,21 +2,28 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*"
+    branches:
+      - main
 
 permissions:
   contents: write
   id-token: write
 
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
 jobs:
   release:
+    if: github.actor != 'github-actions[bot]' && !contains(github.event.head_commit.message, 'chore: release v')
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -25,17 +32,20 @@ jobs:
           cache: npm
           registry-url: https://registry.npmjs.org
 
+      - name: Configure git author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify tag matches package version
+      - name: Bump patch version
+        id: version
         run: |
-          PACKAGE_VERSION=$(node -p "require('./package.json').version")
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          if [ "$PACKAGE_VERSION" != "$TAG_VERSION" ]; then
-            echo "Tag version ($TAG_VERSION) does not match package.json version ($PACKAGE_VERSION)."
-            exit 1
-          fi
+          npm version patch --no-git-tag-version
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Typecheck
         run: npm run typecheck
@@ -57,18 +67,36 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public --provenance
 
+      - name: Commit release metadata
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git add package.json package-lock.json
+          git commit -m "chore: release v$VERSION [skip ci]"
+          git tag "v$VERSION"
+
+      - name: Push release commit and tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git push origin HEAD:main
+          git push origin "v$VERSION"
+
       - name: Package release assets
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           mkdir -p release
           cp -R dist release/dist
           cp -R dist-cli release/dist-cli
           cp package.json package-lock.json README.md release/
-          tar -czf cdx-${{ github.ref_name }}-linux.tar.gz -C release .
-          zip -r cdx-${{ github.ref_name }}-linux.zip release
+          tar -czf "cdx-v$VERSION-linux.tar.gz" -C release .
+          zip -r "cdx-v$VERSION-linux.zip" release
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ steps.version.outputs.version }}
           files: |
-            cdx-${{ github.ref_name }}-linux.tar.gz
-            cdx-${{ github.ref_name }}-linux.zip
+            cdx-v${{ steps.version.outputs.version }}-linux.tar.gz
+            cdx-v${{ steps.version.outputs.version }}-linux.zip
