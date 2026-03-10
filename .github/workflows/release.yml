@@ -9,13 +9,8 @@ permissions:
   contents: write
   id-token: write
 
-concurrency:
-  group: release-main
-  cancel-in-progress: false
-
 jobs:
   release:
-    if: github.actor != 'github-actions[bot]' && !contains(github.event.head_commit.message, 'chore: release v')
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -25,7 +20,27 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Skip release commit pushes
+        id: guard
+        env:
+          ACTOR: ${{ github.actor }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          if [ "$ACTOR" = "github-actions[bot]" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          case "$COMMIT_MESSAGE" in
+            chore:\ release\ v*)
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
       - name: Setup Node.js
+        if: steps.guard.outputs.skip != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -33,14 +48,17 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Configure git author
+        if: steps.guard.outputs.skip != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Install dependencies
+        if: steps.guard.outputs.skip != 'true'
         run: npm ci
 
       - name: Bump patch version
+        if: steps.guard.outputs.skip != 'true'
         id: version
         run: |
           npm version patch --no-git-tag-version
@@ -48,12 +66,15 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Typecheck
+        if: steps.guard.outputs.skip != 'true'
         run: npm run typecheck
 
       - name: Build
+        if: steps.guard.outputs.skip != 'true'
         run: npm run build
 
       - name: Check npm token
+        if: steps.guard.outputs.skip != 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
@@ -63,11 +84,13 @@ jobs:
           fi
 
       - name: Publish to npm
+        if: steps.guard.outputs.skip != 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public --provenance
 
       - name: Commit release metadata
+        if: steps.guard.outputs.skip != 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -76,6 +99,7 @@ jobs:
           git tag "v$VERSION"
 
       - name: Push release commit and tag
+        if: steps.guard.outputs.skip != 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -83,6 +107,7 @@ jobs:
           git push origin "v$VERSION"
 
       - name: Package release assets
+        if: steps.guard.outputs.skip != 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -94,6 +119,7 @@ jobs:
           zip -r "cdx-v$VERSION-linux.zip" release
 
       - name: Publish GitHub release
+        if: steps.guard.outputs.skip != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}
