@@ -73,16 +73,6 @@ jobs:
         if: steps.guard.outputs.skip != 'true'
         run: npm run build
 
-      - name: Check npm token
-        if: steps.guard.outputs.skip != 'true'
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "Missing NPM_TOKEN repository secret."
-            exit 1
-          fi
-
       - name: Publish to npm
         if: steps.guard.outputs.skip != 'true'
         env:
