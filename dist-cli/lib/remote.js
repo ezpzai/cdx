@@ -263,6 +263,15 @@ function requestUsesSecureCookies(req) {
     }
     return "encrypted" in req.socket && req.socket.encrypted === true;
 }
+function readAuthToken(req, url) {
+    const header = req.headers["x-cdx-auth"];
+    const headerValue = Array.isArray(header) ? header[0] : header;
+    if (typeof headerValue === "string" && headerValue.trim().length > 0) {
+        return headerValue.trim();
+    }
+    const queryValue = url?.searchParams.get("a");
+    return queryValue && queryValue.trim().length > 0 ? queryValue.trim() : null;
+}
 export async function startRemoteSession(options) {
     const { profile, mode, codexArgs, cwd, tunnel: tunnelMode, bindHost, printQr } = options;
     ensureCodexBinary();
@@ -377,13 +386,14 @@ export async function startRemoteSession(options) {
             session: authSession,
         };
     };
-    const requireAuth = (req) => {
+    const requireAuth = (req, url) => {
         const cookies = parseCookies(req.headers.cookie);
         const authCookie = cookies.get(AUTH_COOKIE);
-        if (!authCookie) {
+        const authToken = authCookie || readAuthToken(req, url);
+        if (!authToken) {
             return null;
         }
-        return authSession && authSession.id === authCookie ? authSession : null;
+        return authSession && authSession.id === authToken ? authSession : null;
     };
     server.on("request", async (req, res) => {
         const url = req.url ? new URL(req.url, "http://127.0.0.1") : null;
@@ -460,13 +470,13 @@ export async function startRemoteSession(options) {
                 deviceId: grant.record.id,
                 label: grant.record.label,
             };
-            sendJson(res, 200, { ok: true }, [
+            sendJson(res, 200, { ok: true, authToken: authSession.id }, [
                 serializeCookie(AUTH_COOKIE, authSession.id, { maxAge: 24 * 60 * 60, secure }),
                 serializeCookie(TRUSTED_DEVICE_COOKIE, grant.cookieValue, { maxAge: 3650 * 24 * 60 * 60, secure }),
             ]);
             return;
         }
-        const activeAuth = requireAuth(req);
+        const activeAuth = requireAuth(req, url);
         if (!activeAuth) {
             sendJson(res, 401, { message: "Authentication required." });
             return;
@@ -514,7 +524,7 @@ export async function startRemoteSession(options) {
             socket.destroy();
             return;
         }
-        if (!requireAuth(req)) {
+        if (!requireAuth(req, url)) {
             socket.destroy();
             return;
         }
@@ -522,8 +532,13 @@ export async function startRemoteSession(options) {
             wss.emit("connection", client, req, url);
         });
     });
-    wss.on("connection", (client, _req, url) => {
+    wss.on("connection", (client, req, url) => {
         wsClients.add(client);
+        const authSession = requireAuth(req, url);
+        if (!authSession) {
+            client.close();
+            return;
+        }
         const cursorRaw = url?.searchParams.get("cursor") ?? null;
         const cursor = cursorRaw ? Number.parseInt(cursorRaw, 10) : null;
         const bootstrapMode = url?.searchParams.get("bootstrap") ?? "";
@@ -548,6 +563,18 @@ export async function startRemoteSession(options) {
                 const payload = JSON.parse(String(raw));
                 if (payload.type === "resize" && typeof payload.cols === "number" && typeof payload.rows === "number") {
                     resizeTerminal(payload.cols, payload.rows);
+                    return;
+                }
+                if (payload.type === "input" && typeof payload.data === "string" && payload.data.length > 0 && ptyProcess) {
+                    const lock = getActiveLock();
+                    if (lock?.owner === "desktop") {
+                        return;
+                    }
+                    if (lock?.owner === "remote" && lock.label && lock.label !== authSession.label) {
+                        return;
+                    }
+                    setLock("remote", authSession.label, REMOTE_INPUT_LOCK_MS);
+                    ptyProcess.write(payload.data);
                 }
             }
             catch {

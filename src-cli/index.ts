@@ -26,6 +26,7 @@ import { fetchCodexUsage, fetchRemotePreflightUsage } from "./lib/usage.js";
 import { listTrustedDevices, revokeAllTrustedDevices, revokeTrustedDevice } from "./lib/remote-devices.js";
 import { startRemoteSession } from "./lib/remote.js";
 import { formatCloudflaredInstallHelp, isCloudflaredMissingError } from "./lib/remote-tunnel.js";
+import { maybeRunStartupUpdate } from "./lib/updater.js";
 import {
   buildHandoffPrompt,
   buildPreflight,
@@ -897,6 +898,10 @@ async function main(): Promise<void> {
 
   if (!command || command === "help" || command === "--help" || command === "-h") {
     printHelp();
+    return;
+  }
+
+  if ((await maybeRunStartupUpdate()) === "updated") {
     return;
   }
 

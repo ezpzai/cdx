@@ -24,3 +24,6 @@ export function getRemoteDataDir() {
 export function getRemoteDevicesPath() {
     return path.join(getRemoteDataDir(), "trusted-devices.json");
 }
+export function getUpdateCheckPath() {
+    return path.join(getCdxHome(), "update-check.json");
+}

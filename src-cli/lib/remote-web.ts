@@ -103,19 +103,24 @@ const THEMES = {
     },
   },
 };
+const THEME_LABELS = {
+  'modern-dark': 'Midnight',
+  sepia: 'Sepia',
+  teal: 'Lagoon',
+};
 const STATUS_LABELS = {
-  waiting: '대기',
-  starting: '시작',
-  running: '실행',
-  live: '연결',
-  reconnecting: '재연결',
-  ended: '종료',
-  succeeded: '완료',
-  failed: '실패',
-  'socket error': '오류',
-  'polling failed': '오류',
-  'Prompt send failed': '전송 실패',
-  'Interrupt failed': '중단 실패',
+  waiting: 'Idle',
+  starting: 'Starting',
+  running: 'Running',
+  live: 'Live',
+  reconnecting: 'Reconnecting',
+  ended: 'Ended',
+  succeeded: 'Done',
+  failed: 'Failed',
+  'socket error': 'Error',
+  'polling failed': 'Error',
+  'Prompt send failed': 'Send failed',
+  'Interrupt failed': 'Interrupt failed',
 };
 const STATUS_TONES = {
   waiting: 'idle',
@@ -144,8 +149,13 @@ const els = {
   reconnectButton: document.querySelector('[data-reconnect-button]'),
   status: document.querySelector('[data-remote-status]'),
   statusLabel: document.querySelector('[data-status-label]'),
-  themeButtons: Array.from(document.querySelectorAll('[data-theme-button]')),
+  themeToggle: document.querySelector('[data-theme-toggle]'),
+  themeMenu: document.querySelector('[data-theme-menu]'),
+  themeToggleLabel: document.querySelector('[data-theme-toggle-label]'),
+  themeSwatch: document.querySelector('[data-theme-swatch]'),
+  themeOptions: Array.from(document.querySelectorAll('[data-theme-option]')),
   terminal: document.querySelector('[data-terminal]'),
+  terminalTouchSurface: document.querySelector('[data-terminal-touch-surface]'),
   themeColor: document.querySelector('meta[name="theme-color"]'),
 };
 
@@ -153,11 +163,21 @@ let socket = null;
 let pollingTimer = null;
 let authenticated = !CONFIG.otpRequired;
 let lastEventId = 0;
+let authToken = null;
 let terminal = null;
 let fitAddon = null;
 let resizeTimer = null;
 let hasBootstrappedTerminal = false;
+let terminalTouchY = null;
+let terminalTouchRemainder = 0;
+let terminalTouchPointerId = null;
+let themeMenuOpen = false;
+let liveSlashDraft = '';
 const withInviteToken = (path) => \`\${path}?t=\${encodeURIComponent(CONFIG.inviteToken)}\`;
+const withAuth = (path) => {
+  const separator = path.includes('?') ? '&' : '?';
+  return authToken ? \`\${path}\${separator}a=\${encodeURIComponent(authToken)}\` : path;
+};
 
 const getStoredTheme = () => {
   const stored = window.localStorage.getItem(THEME_KEY);
@@ -210,6 +230,12 @@ const ensureTerminal = async () => {
   fitAddon = new F();
   terminal.loadAddon(fitAddon);
   terminal.open(els.terminal);
+  const viewport = els.terminal.querySelector('.xterm-viewport');
+  if (viewport instanceof HTMLElement) {
+    viewport.style.overscrollBehaviorY = 'contain';
+    viewport.style.webkitOverflowScrolling = 'touch';
+  }
+  bindTerminalTouchSurface();
   fitTerminal();
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
@@ -223,6 +249,108 @@ const fitTerminal = () => { if (fitAddon && terminal) fitAddon.fit(); };
 const sendResize = () => {
   if (!terminal || !socket || socket.readyState !== WebSocket.OPEN) return;
   socket.send(JSON.stringify({ type: 'resize', cols: terminal.cols, rows: terminal.rows }));
+};
+
+const getTerminalLineHeightPx = () => {
+  const firstRow = els.terminal.querySelector('.xterm-rows > div');
+  if (firstRow instanceof HTMLElement) {
+    const measured = firstRow.getBoundingClientRect().height;
+    if (measured > 0) return measured;
+  }
+
+  const viewport = els.terminal.querySelector('.xterm-viewport');
+  const containerHeight =
+    viewport instanceof HTMLElement ? viewport.clientHeight : els.terminal.clientHeight || 0;
+  return Math.max(containerHeight / Math.max(terminal?.rows || 1, 1), 1);
+};
+
+const scrollTerminalFromTouchDelta = (deltaY) => {
+  if (!terminal) return false;
+  terminalTouchRemainder += deltaY;
+  const lineHeightPx = getTerminalLineHeightPx();
+  if (!Number.isFinite(lineHeightPx) || lineHeightPx <= 0) return false;
+  const lines = Math.trunc(terminalTouchRemainder / lineHeightPx);
+  if (lines === 0) return false;
+  terminal.scrollLines(lines);
+  terminalTouchRemainder -= lines * lineHeightPx;
+  return true;
+};
+
+const resetTerminalTouchScroll = () => {
+  terminalTouchY = null;
+  terminalTouchRemainder = 0;
+  terminalTouchPointerId = null;
+};
+
+const handleTerminalTouchStart = (event) => {
+  if (!terminal || event.touches.length !== 1) return;
+  terminalTouchY = event.touches[0].clientY;
+  terminalTouchRemainder = 0;
+  event.preventDefault();
+};
+
+const handleTerminalTouchMove = (event) => {
+  if (!terminal || terminalTouchY === null || event.touches.length !== 1) return;
+  const nextY = event.touches[0].clientY;
+  scrollTerminalFromTouchDelta(terminalTouchY - nextY);
+  terminalTouchY = nextY;
+  event.preventDefault();
+};
+
+const handleTerminalPointerDown = (event) => {
+  if (!terminal || event.pointerType !== 'touch') return;
+  terminalTouchPointerId = event.pointerId;
+  terminalTouchY = event.clientY;
+  terminalTouchRemainder = 0;
+  if (event.currentTarget instanceof HTMLElement) {
+    try {
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+    } catch {
+      // Some browsers reject pointer capture for synthetic or early touch events.
+    }
+  }
+  event.preventDefault();
+};
+
+const handleTerminalPointerMove = (event) => {
+  if (
+    !terminal ||
+    event.pointerType !== 'touch' ||
+    terminalTouchPointerId !== event.pointerId ||
+    terminalTouchY === null
+  ) {
+    return;
+  }
+
+  const nextY = event.clientY;
+  scrollTerminalFromTouchDelta(terminalTouchY - nextY);
+  terminalTouchY = nextY;
+  event.preventDefault();
+};
+
+const bindTerminalTouchSurface = () => {
+  const surface = els.terminalTouchSurface;
+  if (!(surface instanceof HTMLElement) || surface.dataset.touchScrollBound === 'true') return;
+  surface.dataset.touchScrollBound = 'true';
+
+  if ('PointerEvent' in window) {
+    surface.addEventListener('pointerdown', handleTerminalPointerDown, { passive: false });
+    surface.addEventListener('pointermove', handleTerminalPointerMove, { passive: false });
+    surface.addEventListener('pointerup', resetTerminalTouchScroll, { passive: true });
+    surface.addEventListener('pointercancel', resetTerminalTouchScroll, { passive: true });
+    return;
+  }
+
+  surface.addEventListener('touchstart', handleTerminalTouchStart, { passive: false });
+  surface.addEventListener('touchmove', handleTerminalTouchMove, { passive: false });
+  surface.addEventListener('touchend', resetTerminalTouchScroll, { passive: true });
+  surface.addEventListener('touchcancel', resetTerminalTouchScroll, { passive: true });
+};
+
+const sendInput = (data) => {
+  if (!data || !socket || socket.readyState !== WebSocket.OPEN) return false;
+  socket.send(JSON.stringify({ type: 'input', data }));
+  return true;
 };
 
 const setAuthMessage = (v, tone = 'neutral') => {
@@ -246,15 +374,63 @@ const setRemoteStatus = (v) => {
   if (els.statusLabel) els.statusLabel.textContent = v;
 };
 
+const closeThemeMenu = () => {
+  themeMenuOpen = false;
+  els.themeToggle?.setAttribute('aria-expanded', 'false');
+  els.themeMenu?.setAttribute('hidden', '');
+};
+
+const openThemeMenu = () => {
+  themeMenuOpen = true;
+  els.themeToggle?.setAttribute('aria-expanded', 'true');
+  els.themeMenu?.removeAttribute('hidden');
+};
+
+const toggleThemeMenu = () => {
+  if (themeMenuOpen) closeThemeMenu();
+  else openThemeMenu();
+};
+
+const syncSlashDraft = () => {
+  const value = els.promptInput.value;
+  const isSlashDraft = value.startsWith('/') && !value.includes('\\n');
+
+  if (!isSlashDraft) {
+    if (liveSlashDraft) {
+      sendInput('\\u0015');
+      liveSlashDraft = '';
+    }
+    return false;
+  }
+
+  let delta = '';
+  if (value.startsWith(liveSlashDraft)) {
+    delta = value.slice(liveSlashDraft.length);
+  } else if (liveSlashDraft.startsWith(value)) {
+    delta = '\\b'.repeat(liveSlashDraft.length - value.length);
+  } else {
+    delta = '\\u0015' + value;
+  }
+
+  const sent = sendInput(delta);
+  if (sent) {
+    liveSlashDraft = value;
+  }
+  return sent;
+};
+
 const applyTheme = (theme) => {
   const t = theme in THEMES ? theme : 'modern-dark';
   document.documentElement.dataset.theme = t;
   document.documentElement.style.colorScheme = t === 'teal' ? 'light' : 'dark';
   window.localStorage.setItem(THEME_KEY, t);
   if (els.themeColor) els.themeColor.setAttribute('content', THEMES[t].metaColor);
-  els.themeButtons.forEach((b) => {
-    b.dataset.active = b.dataset.themeButton === t ? 'true' : 'false';
-    b.setAttribute('aria-pressed', b.dataset.themeButton === t ? 'true' : 'false');
+  if (els.themeToggleLabel) els.themeToggleLabel.textContent = THEME_LABELS[t];
+  if (els.themeSwatch) els.themeSwatch.style.background = THEMES[t].terminal.cursor;
+  els.themeOptions.forEach((option) => {
+    const active = option.dataset.themeOption === t;
+    option.dataset.active = active ? 'true' : 'false';
+    option.setAttribute('aria-pressed', active ? 'true' : 'false');
   });
   if (terminal) terminal.options.theme = THEMES[t].terminal;
 };
@@ -284,8 +460,9 @@ const renderSnapshot = async (snap) => {
 
 const fetchSnapshot = async () => {
   try {
-    const r = await fetch(\`/api/session?t=\${encodeURIComponent(CONFIG.inviteToken)}\`, { credentials: 'same-origin' });
-    if (r.status === 401) { await setAuthenticated(false); setAuthMessage('코드를 다시 확인하세요', 'warn'); return; }
+    const sessionPath = withAuth(\`/api/session?t=\${encodeURIComponent(CONFIG.inviteToken)}\`);
+    const r = await fetch(sessionPath, { credentials: 'same-origin' });
+    if (r.status === 401) { await setAuthenticated(false); setAuthMessage('Check the code and try again.', 'warn'); return; }
     await renderSnapshot(await r.json());
   } catch (e) {
     setRemoteStatus(e instanceof Error ? e.message : 'polling failed');
@@ -305,8 +482,16 @@ const connect = async () => {
   const q = lastEventId > 0
     ? \`cursor=\${encodeURIComponent(String(lastEventId))}\`
     : 'bootstrap=snapshot';
-  socket = new WebSocket(\`\${proto}//\${location.host}/api/ws?t=\${encodeURIComponent(CONFIG.inviteToken)}&\${q}\`);
-  socket.addEventListener('open', () => { setRemoteStatus('live'); clearInterval(pollingTimer); sendResize(); });
+  socket = new WebSocket(\`\${proto}//\${location.host}\${withAuth(\`/api/ws?t=\${encodeURIComponent(CONFIG.inviteToken)}&\${q}\`)}\`);
+  socket.addEventListener('open', () => {
+    setRemoteStatus('live');
+    clearInterval(pollingTimer);
+    sendResize();
+    if (els.promptInput.value.startsWith('/')) {
+      liveSlashDraft = '';
+      syncSlashDraft();
+    }
+  });
   socket.addEventListener('message', async (ev) => {
     const p = JSON.parse(String(ev.data));
     if (typeof p.eventId === 'number') lastEventId = Math.max(lastEventId, p.eventId);
@@ -319,43 +504,61 @@ const connect = async () => {
     }
     if (p.type === 'status') setRemoteStatus(p.status);
   });
-  socket.addEventListener('close', () => { setRemoteStatus('reconnecting'); socket = null; startPolling(); });
-  socket.addEventListener('error', () => { setRemoteStatus('socket error'); socket = null; startPolling(); });
+  socket.addEventListener('close', () => { setRemoteStatus('reconnecting'); socket = null; liveSlashDraft = ''; startPolling(); });
+  socket.addEventListener('error', () => { setRemoteStatus('socket error'); socket = null; liveSlashDraft = ''; startPolling(); });
 };
 
 /* ── OTP submit ── */
 els.otpForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const otp = els.otpInput.value.trim();
-  if (!otp) { setAuthMessage('6자리 코드를 입력하세요', 'warn'); return; }
-  setAuthMessage('확인 중…', 'neutral');
+  if (!otp) { setAuthMessage('Enter the 6-digit code.', 'warn'); return; }
+  setAuthMessage('Checking…', 'neutral');
   try {
     const r = await fetch('/api/auth/otp', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: CONFIG.inviteToken, otp }),
     });
-    if (!r.ok) { const d = await r.json().catch(() => null); throw new Error(d?.message || '인증 실패'); }
+    if (!r.ok) { const d = await r.json().catch(() => null); throw new Error(d?.message || 'Authentication failed'); }
+    const payload = await r.json().catch(() => null);
+    authToken = typeof payload?.authToken === 'string' ? payload.authToken : null;
     await setAuthenticated(true);
     setAuthMessage('', 'neutral');
     connect();
-  } catch (e) { setAuthMessage(e instanceof Error ? e.message : '인증 실패', 'warn'); }
+  } catch (e) { setAuthMessage(e instanceof Error ? e.message : 'Authentication failed', 'warn'); }
 });
 
 /* ── Prompt submit ── */
 els.promptForm.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const prompt = els.promptInput.value.trim();
+  const promptValue = els.promptInput.value;
+  const prompt = promptValue.trim();
   if (!prompt) return;
   els.promptButton.disabled = true;
   try {
-    const r = await fetch(\`/api/prompts?t=\${encodeURIComponent(CONFIG.inviteToken)}\`, {
-      method: 'POST', credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt }),
-    });
-    if (!r.ok) { const d = await r.json().catch(() => null); throw new Error(d?.message || '전송 실패'); }
+    const submittedLiveSlash =
+      liveSlashDraft.length > 0 &&
+      promptValue === liveSlashDraft &&
+      sendInput('\\r');
+
+    if (!submittedLiveSlash) {
+      if (liveSlashDraft) {
+        sendInput('\\u0015');
+        liveSlashDraft = '';
+      }
+
+      const promptPath = withAuth(\`/api/prompts?t=\${encodeURIComponent(CONFIG.inviteToken)}\`);
+      const r = await fetch(promptPath, {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      });
+      if (!r.ok) { const d = await r.json().catch(() => null); throw new Error(d?.message || 'Send failed'); }
+    }
+
     els.promptInput.value = '';
+    liveSlashDraft = '';
     els.promptInput.focus();
   } catch (e) { setRemoteStatus(e instanceof Error ? e.message : 'Prompt send failed'); }
   finally { els.promptButton.disabled = false; }
@@ -364,25 +567,48 @@ els.promptForm.addEventListener('submit', async (e) => {
 els.promptInput.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); els.promptForm.requestSubmit(); }
 });
+els.promptInput.addEventListener('input', () => {
+  syncSlashDraft();
+});
 
 els.interruptButton.addEventListener('click', async () => {
-  try { await fetch(\`/api/interrupt?t=\${encodeURIComponent(CONFIG.inviteToken)}\`, { method: 'POST', credentials: 'same-origin' }); }
+  try { await fetch(withAuth(\`/api/interrupt?t=\${encodeURIComponent(CONFIG.inviteToken)}\`), { method: 'POST', credentials: 'same-origin' }); }
   catch (e) { setRemoteStatus(e instanceof Error ? e.message : 'Interrupt failed'); }
 });
 
 els.reconnectButton.addEventListener('click', async () => { await fetchSnapshot(); connect(); });
+els.themeToggle.addEventListener('click', () => {
+  toggleThemeMenu();
+});
+els.themeOptions.forEach((option) => {
+  option.addEventListener('click', () => {
+    applyTheme(option.dataset.themeOption || 'modern-dark');
+    closeThemeMenu();
+  });
+});
+document.addEventListener('click', (event) => {
+  const target = event.target;
+  if (
+    themeMenuOpen &&
+    target instanceof Node &&
+    !els.themeMenu?.contains(target) &&
+    !els.themeToggle?.contains(target)
+  ) {
+    closeThemeMenu();
+  }
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') closeThemeMenu();
+});
 
 /* ── Theme ── */
 applyTheme(getStoredTheme());
-els.themeButtons.forEach((b) => {
-  b.addEventListener('click', () => applyTheme(b.dataset.themeButton || 'modern-dark'));
-});
 
 /* ── Init ── */
 (async () => {
   await setAuthenticated(authenticated);
   if (authenticated) connect();
-  else setAuthMessage(\`데스크톱에 표시된 6자리 코드를 입력하세요\`, 'neutral');
+  else setAuthMessage(\`Enter the 6-digit code shown on your desktop.\`, 'neutral');
 })();
 `;
 }
@@ -393,7 +619,7 @@ export function renderRemotePage(config: RemotePageConfig): string {
   const safeExpiry = escapeHtml(config.otpExpiresLabel);
 
   return `<!doctype html>
-<html lang="ko" data-theme="modern-dark">
+<html lang="en" data-theme="modern-dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
@@ -409,7 +635,11 @@ export function renderRemotePage(config: RemotePageConfig): string {
   <style>
     /* ── reset ── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { height: 100%; overflow: hidden; }
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      overscroll-behavior-y: none;
+    }
     button, input, textarea { font: inherit; }
     button { cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
     button:disabled { cursor: wait; opacity: 0.5; }
@@ -587,6 +817,8 @@ export function renderRemotePage(config: RemotePageConfig): string {
       display: flex;
       flex-direction: column;
       height: 100dvh;
+      overflow: hidden;
+      overscroll-behavior-y: none;
     }
 
     /* ── top bar (minimal) ── */
@@ -639,26 +871,128 @@ export function renderRemotePage(config: RemotePageConfig): string {
       flex-shrink: 0;
     }
 
-    .theme-row {
-      display: flex;
-      gap: 4px;
+    .theme-shell {
+      position: relative;
       margin-left: auto;
       flex-shrink: 0;
     }
 
-    .theme-dot {
-      width: 16px; height: 16px;
-      border-radius: 50%;
-      border: 1.5px solid var(--line);
-      background: transparent;
-      padding: 0;
-      transition: border-color 0.15s, transform 0.15s;
+    .theme-trigger {
+      min-width: 112px;
+      height: 30px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--surface) 86%, black 14%);
+      color: var(--text);
+      display: inline-flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      transition: border-color 0.15s, transform 0.15s, background 0.15s;
     }
-    .theme-dot:hover { transform: scale(1.15); }
-    .theme-dot[data-active="true"] { border-color: var(--accent); }
-    .theme-dot[data-theme-button="modern-dark"]  { background: #5fddcc; }
-    .theme-dot[data-theme-button="sepia"]         { background: #ddb56e; }
-    .theme-dot[data-theme-button="teal"]          { background: #50d4c2; }
+    .theme-trigger:hover {
+      border-color: rgba(255, 255, 255, 0.18);
+      transform: translateY(-1px);
+    }
+
+    .theme-trigger-left {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .theme-trigger-label {
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .theme-swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08);
+      background: var(--accent);
+      flex-shrink: 0;
+    }
+
+    .theme-chevron {
+      width: 12px;
+      height: 12px;
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+
+    .theme-menu {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 8px);
+      width: 168px;
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--surface) 88%, black 12%);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.28);
+      backdrop-filter: blur(18px);
+      display: grid;
+      gap: 6px;
+      z-index: 5;
+    }
+
+    .theme-menu[hidden] {
+      display: none;
+    }
+
+    .theme-option {
+      width: 100%;
+      border: 1px solid transparent;
+      border-radius: 10px;
+      background: transparent;
+      color: var(--text);
+      padding: 9px 10px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-align: left;
+      transition: border-color 0.15s, background 0.15s, transform 0.15s;
+    }
+    .theme-option:hover {
+      transform: translateY(-1px);
+      background: rgba(255, 255, 255, 0.04);
+    }
+    .theme-option[data-active="true"] {
+      border-color: var(--line);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .theme-option-swatch {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      flex-shrink: 0;
+    }
+    .theme-option-swatch[data-theme-option-swatch="modern-dark"] { background: #5fddcc; }
+    .theme-option-swatch[data-theme-option-swatch="sepia"] { background: #ddb56e; }
+    .theme-option-swatch[data-theme-option-swatch="teal"] { background: #50d4c2; }
+
+    .theme-option-copy {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .theme-option-title {
+      font-size: 11px;
+      color: var(--text);
+    }
+
+    .theme-option-note {
+      font-size: 10px;
+      color: var(--muted);
+    }
 
     /* ── terminal area ── */
     .terminal-area {
@@ -668,6 +1002,8 @@ export function renderRemotePage(config: RemotePageConfig): string {
       min-height: 0;
       background: var(--terminal-bg);
       overflow: hidden;
+      overscroll-behavior-y: contain;
+      touch-action: pan-y;
     }
     .terminal-area::after {
       content: "";
@@ -682,7 +1018,32 @@ export function renderRemotePage(config: RemotePageConfig): string {
     }
 
     .terminal-host {
+      position: relative;
       height: calc(100% - var(--terminal-mask-height));
+      overscroll-behavior-y: contain;
+      touch-action: pan-y;
+    }
+
+    .terminal-host .xterm,
+    .terminal-host .xterm-scrollable-element,
+    .terminal-host .xterm-viewport {
+      overscroll-behavior-y: contain;
+      touch-action: pan-y;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .terminal-touch-surface {
+      display: none;
+    }
+
+    @media (hover: none), (pointer: coarse) {
+      .terminal-touch-surface {
+        display: block;
+        position: absolute;
+        inset: 0 0 var(--terminal-mask-height) 0;
+        z-index: 1;
+        touch-action: none;
+      }
     }
 
     /* ── bottom prompt bar ── */
@@ -768,8 +1129,8 @@ export function renderRemotePage(config: RemotePageConfig): string {
       <div class="auth-brand">
         <div class="auth-brand-mark">cdx</div>
         <div class="auth-brand-text">
-          <strong>모바일 원격 터미널</strong>
-          데스크톱 Codex에 연결
+          <strong>Mobile Remote Terminal</strong>
+          Connect to your desktop Codex session
         </div>
       </div>
 
@@ -786,13 +1147,13 @@ export function renderRemotePage(config: RemotePageConfig): string {
           placeholder="000000"
           autofocus
         />
-        <button class="btn-primary" type="submit">연결</button>
+        <button class="btn-primary" type="submit">Connect</button>
       </form>
 
       <div class="auth-meta">
         <span class="meta-tag"><b>${safeProfile}</b></span>
         <span class="meta-tag">${safeMode}</span>
-        <span class="meta-tag">만료 ${safeExpiry}</span>
+        <span class="meta-tag">Expires ${safeExpiry}</span>
       </div>
 
       <p class="auth-msg" data-auth-message role="status" aria-live="polite"></p>
@@ -805,23 +1166,53 @@ export function renderRemotePage(config: RemotePageConfig): string {
       <div class="remote-mark">cdx</div>
       <span class="remote-meta">${safeProfile} · ${safeMode}</span>
       <span class="status-dot" data-remote-status data-state="idle"></span>
-      <span class="status-text" data-status-label>대기</span>
-      <div class="theme-row">
-        <button class="theme-dot" type="button" data-theme-button="modern-dark" data-active="true" aria-pressed="true" aria-label="Dark"></button>
-        <button class="theme-dot" type="button" data-theme-button="sepia" data-active="false" aria-pressed="false" aria-label="Sepia"></button>
-        <button class="theme-dot" type="button" data-theme-button="teal" data-active="false" aria-pressed="false" aria-label="Teal"></button>
+      <span class="status-text" data-status-label>Idle</span>
+      <div class="theme-shell">
+        <button class="theme-trigger" type="button" data-theme-toggle aria-expanded="false" aria-haspopup="menu" aria-label="Choose theme">
+          <span class="theme-trigger-left">
+            <span class="theme-swatch" data-theme-swatch></span>
+            <span class="theme-trigger-label" data-theme-toggle-label>Midnight</span>
+          </span>
+          <svg class="theme-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
+        <div class="theme-menu" data-theme-menu hidden>
+          <button class="theme-option" type="button" data-theme-option="modern-dark" data-active="true" aria-pressed="true">
+            <span class="theme-option-swatch" data-theme-option-swatch="modern-dark"></span>
+            <span class="theme-option-copy">
+              <span class="theme-option-title">Midnight</span>
+              <span class="theme-option-note">Dark glass + cyan cursor</span>
+            </span>
+          </button>
+          <button class="theme-option" type="button" data-theme-option="sepia" data-active="false" aria-pressed="false">
+            <span class="theme-option-swatch" data-theme-option-swatch="sepia"></span>
+            <span class="theme-option-copy">
+              <span class="theme-option-title">Sepia</span>
+              <span class="theme-option-note">Warm paper + amber glow</span>
+            </span>
+          </button>
+          <button class="theme-option" type="button" data-theme-option="teal" data-active="false" aria-pressed="false">
+            <span class="theme-option-swatch" data-theme-option-swatch="teal"></span>
+            <span class="theme-option-copy">
+              <span class="theme-option-title">Lagoon</span>
+              <span class="theme-option-note">Cool ink + bright seafoam</span>
+            </span>
+          </button>
+        </div>
       </div>
     </div>
 
     <div class="terminal-area">
       <div class="terminal-host" data-terminal></div>
+      <div class="terminal-touch-surface" data-terminal-touch-surface aria-hidden="true"></div>
     </div>
 
     <div class="prompt-bar">
-      <button class="btn-icon btn-danger" type="button" data-interrupt-button aria-label="중단">
+      <button class="btn-icon btn-danger" type="button" data-interrupt-button aria-label="Interrupt">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
-      <button class="btn-icon" type="button" data-reconnect-button aria-label="재연결">
+      <button class="btn-icon" type="button" data-reconnect-button aria-label="Reconnect">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
       </button>
       <form class="prompt-bar" style="display:contents" data-prompt-form>
@@ -833,7 +1224,7 @@ export function renderRemotePage(config: RemotePageConfig): string {
           autocapitalize="off"
           spellcheck="false"
         ></textarea>
-        <button class="prompt-send" type="submit" data-prompt-button aria-label="전송">
+        <button class="prompt-send" type="submit" data-prompt-button aria-label="Send">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94l18-8a.75.75 0 0 0 0-1.38l-18-8Z"/></svg>
         </button>
       </form>

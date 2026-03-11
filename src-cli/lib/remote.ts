@@ -361,6 +361,17 @@ function requestUsesSecureCookies(req: IncomingMessage): boolean {
   return "encrypted" in req.socket && req.socket.encrypted === true;
 }
 
+function readAuthToken(req: IncomingMessage, url?: URL | null): string | null {
+  const header = req.headers["x-cdx-auth"];
+  const headerValue = Array.isArray(header) ? header[0] : header;
+  if (typeof headerValue === "string" && headerValue.trim().length > 0) {
+    return headerValue.trim();
+  }
+
+  const queryValue = url?.searchParams.get("a");
+  return queryValue && queryValue.trim().length > 0 ? queryValue.trim() : null;
+}
+
 export async function startRemoteSession(
   options: StartRemoteSessionOptions,
 ): Promise<{ exitCode: number; publicUrl: string | null; shareUrl: string }> {
@@ -491,14 +502,15 @@ export async function startRemoteSession(
     };
   };
 
-  const requireAuth = (req: IncomingMessage): AuthSession | null => {
+  const requireAuth = (req: IncomingMessage, url?: URL | null): AuthSession | null => {
     const cookies = parseCookies(req.headers.cookie);
     const authCookie = cookies.get(AUTH_COOKIE);
-    if (!authCookie) {
+    const authToken = authCookie || readAuthToken(req, url);
+    if (!authToken) {
       return null;
     }
 
-    return authSession && authSession.id === authCookie ? authSession : null;
+    return authSession && authSession.id === authToken ? authSession : null;
   };
 
   server.on("request", async (req, res) => {
@@ -593,7 +605,7 @@ export async function startRemoteSession(
       sendJson(
         res,
         200,
-        { ok: true },
+        { ok: true, authToken: authSession.id },
         [
           serializeCookie(AUTH_COOKIE, authSession.id, { maxAge: 24 * 60 * 60, secure }),
           serializeCookie(TRUSTED_DEVICE_COOKIE, grant.cookieValue, { maxAge: 3650 * 24 * 60 * 60, secure }),
@@ -602,7 +614,7 @@ export async function startRemoteSession(
       return;
     }
 
-    const activeAuth = requireAuth(req);
+    const activeAuth = requireAuth(req, url);
     if (!activeAuth) {
       sendJson(res, 401, { message: "Authentication required." });
       return;
@@ -659,7 +671,7 @@ export async function startRemoteSession(
       return;
     }
 
-    if (!requireAuth(req)) {
+    if (!requireAuth(req, url)) {
       socket.destroy();
       return;
     }
@@ -669,8 +681,13 @@ export async function startRemoteSession(
     });
   });
 
-  wss.on("connection", (client: WebSocket, _req: IncomingMessage, url?: URL) => {
+  wss.on("connection", (client: WebSocket, req: IncomingMessage, url?: URL) => {
     wsClients.add(client);
+    const authSession = requireAuth(req, url);
+    if (!authSession) {
+      client.close();
+      return;
+    }
     const cursorRaw = url?.searchParams.get("cursor") ?? null;
     const cursor = cursorRaw ? Number.parseInt(cursorRaw, 10) : null;
     const bootstrapMode = url?.searchParams.get("bootstrap") ?? "";
@@ -692,9 +709,24 @@ export async function startRemoteSession(
     }
     client.on("message", (raw) => {
       try {
-        const payload = JSON.parse(String(raw)) as { type?: string; cols?: number; rows?: number };
+        const payload = JSON.parse(String(raw)) as { type?: string; cols?: number; rows?: number; data?: string };
         if (payload.type === "resize" && typeof payload.cols === "number" && typeof payload.rows === "number") {
           resizeTerminal(payload.cols, payload.rows);
+          return;
+        }
+
+        if (payload.type === "input" && typeof payload.data === "string" && payload.data.length > 0 && ptyProcess) {
+          const lock = getActiveLock();
+          if (lock?.owner === "desktop") {
+            return;
+          }
+
+          if (lock?.owner === "remote" && lock.label && lock.label !== authSession.label) {
+            return;
+          }
+
+          setLock("remote", authSession.label, REMOTE_INPUT_LOCK_MS);
+          ptyProcess.write(payload.data);
         }
       } catch {
         // Ignore malformed client messages.

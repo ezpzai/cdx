@@ -11,6 +11,7 @@ import { fetchCodexUsage, fetchRemotePreflightUsage } from "./lib/usage.js";
 import { listTrustedDevices, revokeAllTrustedDevices, revokeTrustedDevice } from "./lib/remote-devices.js";
 import { startRemoteSession } from "./lib/remote.js";
 import { formatCloudflaredInstallHelp, isCloudflaredMissingError } from "./lib/remote-tunnel.js";
+import { maybeRunStartupUpdate } from "./lib/updater.js";
 import { buildHandoffPrompt, buildPreflight, buildRecentHandoffMetadata, findConflictingCodexArgs, getModeFlags, rankCandidateProfiles, resolveEffectiveMode, shouldOfferContinuation, } from "./lib/run-flow.js";
 import { prepareGlobalAgentsFile, startLoginSession, startLogoutSession, } from "./lib/actions.js";
 function printHelp() {
@@ -705,6 +706,9 @@ async function main() {
     const [, , command, ...args] = process.argv;
     if (!command || command === "help" || command === "--help" || command === "-h") {
         printHelp();
+        return;
+    }
+    if ((await maybeRunStartupUpdate()) === "updated") {
         return;
     }
     switch (command) {
