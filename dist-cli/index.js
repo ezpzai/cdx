@@ -46,12 +46,6 @@ function printConfigWarnings(warnings) {
         console.warn(`cdx: warning: ${warning}`);
     }
 }
-function formatQuotaValue(value, resetAt) {
-    if (value === null) {
-        return "unknown";
-    }
-    return `${value}% left${resetAt ? ` (resets ${formatResetTime(resetAt)})` : ""}`;
-}
 function formatResetTime(value, fallback = "?") {
     if (!value) {
         return fallback;
@@ -66,6 +60,46 @@ function formatResetTime(value, fallback = "?") {
         hour12: false,
     }).format(date);
 }
+function formatResetUsageTime(value, fallback = "?") {
+    if (!value) {
+        return fallback;
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return fallback;
+    }
+    const now = new Date();
+    const sameDay = date.getFullYear() === now.getFullYear() &&
+        date.getMonth() === now.getMonth() &&
+        date.getDate() === now.getDate();
+    if (sameDay) {
+        return formatResetTime(value, fallback);
+    }
+    const month = new Intl.DateTimeFormat("en-US", {
+        month: "short",
+    }).format(date);
+    return `${formatResetTime(value, fallback)} on ${date.getDate()} ${month}`;
+}
+function getQuotaColor(value) {
+    if (value === null) {
+        return "\u001B[2m";
+    }
+    if (value <= 20) {
+        return "\u001B[91m";
+    }
+    if (value <= 50) {
+        return "\u001B[93m";
+    }
+    return "\u001B[92m";
+}
+function formatColoredQuotaValue(value, resetAt) {
+    const R = "\u001B[0m";
+    const D = "\u001B[2m";
+    if (value === null) {
+        return `${D}n/a${R}`;
+    }
+    return `${getQuotaColor(value)}${value}%${R} ${D}(${formatResetUsageTime(resetAt)})${R}`;
+}
 function printPreflight(preflight) {
     const R = "\u001B[0m";
     const D = "\u001B[2m";
@@ -73,15 +107,15 @@ function printPreflight(preflight) {
     const Y = "\u001B[93m";
     const G = "\u001B[32m";
     const W = "\u001B[97m";
-    const fiveH = formatQuotaValue(preflight.quota.fiveHourLeft, preflight.quota.fiveHourReset);
-    const weekly = formatQuotaValue(preflight.quota.weeklyLeft, preflight.quota.weeklyReset);
+    const fiveH = formatColoredQuotaValue(preflight.quota.fiveHourLeft, preflight.quota.fiveHourReset);
+    const weekly = formatColoredQuotaValue(preflight.quota.weeklyLeft, preflight.quota.weeklyReset);
     const lines = [
         "",
         `${D}──${R} ${C}cdx${R} ${D}preflight${R}`,
         `   ${D}profile${R}  ${W}${preflight.profile.id}${R}  ${D}${preflight.profile.email}${R}`,
         `   ${D}plan${R}     ${W}${preflight.profile.plan}${R}  ${D}mode=${R}${Y}${preflight.mode}${R}  ${D}auth=${R}${G}${preflight.authState}${R}`,
         `   ${D}5h${R}       ${W}${fiveH}${R}`,
-        `   ${D}weekly${R}   ${W}${weekly}${R}`,
+        `   ${D}week${R}     ${W}${weekly}${R}`,
         "",
     ];
     console.log(lines.join("\n"));
@@ -105,13 +139,16 @@ async function chooseProfileInteractively() {
     })));
 }
 function formatProfileSelectionDetail(profile, row) {
+    const R = "\u001B[0m";
     const identity = `${profile.auth?.email || "not logged in"}${profile.auth?.plan ? ` (${profile.auth.plan})` : ""}`;
     if (!row?.usage) {
         return `${identity} - ?% 5h / ?% weekly`;
     }
     const fiveHour = row.usage.fiveHour?.remainingPercent ?? "?";
     const weekly = row.usage.weekly?.remainingPercent ?? "?";
-    return `${identity} - ${fiveHour}% 5h / ${weekly}% weekly`;
+    const fiveHourLabel = typeof fiveHour === "number" ? `${getQuotaColor(fiveHour)}${fiveHour}%${R} 5h` : `${fiveHour}% 5h`;
+    const weeklyLabel = typeof weekly === "number" ? `${getQuotaColor(weekly)}${weekly}%${R} weekly` : `${weekly}% weekly`;
+    return `${identity} - ${fiveHourLabel} / ${weeklyLabel}`;
 }
 async function requireProfile(id) {
     if (!id) {
@@ -601,13 +638,9 @@ async function handleUsage(args) {
             console.log(`  ${C}${row.profile}${R}  ${D}${account}${R}  ${RED}${row.error}${R}`);
             continue;
         }
-        const fiveHour = row.fiveHourLeft === null
-            ? "n/a"
-            : `${row.fiveHourLeft}% (${formatResetTime(row.fiveHourReset)})`;
-        const weekly = row.weeklyLeft === null
-            ? "n/a"
-            : `${row.weeklyLeft}% (${formatResetTime(row.weeklyReset)})`;
-        console.log(`  ${C}${row.profile}${R}  ${D}${account}${R}  ${D}${plan}${R}  ${W}5h${R} ${fiveHour}  ${W}wk${R} ${weekly}`);
+        const fiveHour = formatColoredQuotaValue(row.fiveHourLeft, row.fiveHourReset);
+        const weekly = formatColoredQuotaValue(row.weeklyLeft, row.weeklyReset);
+        console.log(`  ${C}${row.profile}${R}  ${D}${account}${R}  ${D}${plan}${R}  ${W}5h${R} ${fiveHour}  ${W}week${R} ${weekly}`);
     }
     console.log("");
 }

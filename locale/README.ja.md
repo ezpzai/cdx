@@ -33,6 +33,8 @@ npm install -g @ezpzai/cdx
 
 `cdx remote` はデフォルトで Cloudflare Quick Tunnel を使います。
 
+* https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads
+
 macOS:
 
 ```bash
