@@ -408,7 +408,8 @@ export async function startRemoteSession(options) {
             return;
         }
         const inviteTokenFromQuery = url.searchParams.get("t");
-        const needsQueryInvite = req.method === "GET" ||
+        const isPageRequest = (req.method === "GET" || req.method === "HEAD") && url.pathname === "/";
+        const needsQueryInvite = isPageRequest ||
             url.pathname === "/api/session" ||
             url.pathname === "/api/prompts" ||
             url.pathname === "/api/interrupt";
@@ -416,15 +417,25 @@ export async function startRemoteSession(options) {
             sendJson(res, 401, { message: "Invite token is missing or expired." });
             return;
         }
-        if (req.method === "GET" && url.pathname === "/") {
+        if (isPageRequest) {
             const trusted = await authenticate(req);
-            sendHtml(res, renderRemotePage({
+            const html = renderRemotePage({
                 inviteToken,
                 profileId: profile.id,
                 mode,
                 otpRequired: trusted.session === null,
                 otpExpiresLabel,
-            }), trusted.cookies);
+            });
+            if (req.method === "HEAD") {
+                res.statusCode = 200;
+                res.setHeader("Content-Type", "text/html; charset=utf-8");
+                if (trusted.cookies.length > 0) {
+                    res.setHeader("Set-Cookie", trusted.cookies);
+                }
+                res.end();
+                return;
+            }
+            sendHtml(res, html, trusted.cookies);
             return;
         }
         if (req.method === "POST" && url.pathname === "/api/auth/otp") {

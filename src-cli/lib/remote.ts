@@ -528,8 +528,9 @@ export async function startRemoteSession(
     }
 
     const inviteTokenFromQuery = url.searchParams.get("t");
+    const isPageRequest = (req.method === "GET" || req.method === "HEAD") && url.pathname === "/";
     const needsQueryInvite =
-      req.method === "GET" ||
+      isPageRequest ||
       url.pathname === "/api/session" ||
       url.pathname === "/api/prompts" ||
       url.pathname === "/api/interrupt";
@@ -539,19 +540,25 @@ export async function startRemoteSession(
       return;
     }
 
-    if (req.method === "GET" && url.pathname === "/") {
+    if (isPageRequest) {
       const trusted = await authenticate(req);
-      sendHtml(
-        res,
-        renderRemotePage({
-          inviteToken,
-          profileId: profile.id,
-          mode,
-          otpRequired: trusted.session === null,
-          otpExpiresLabel,
-        }),
-        trusted.cookies,
-      );
+      const html = renderRemotePage({
+        inviteToken,
+        profileId: profile.id,
+        mode,
+        otpRequired: trusted.session === null,
+        otpExpiresLabel,
+      });
+      if (req.method === "HEAD") {
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        if (trusted.cookies.length > 0) {
+          res.setHeader("Set-Cookie", trusted.cookies);
+        }
+        res.end();
+        return;
+      }
+      sendHtml(res, html, trusted.cookies);
       return;
     }
 

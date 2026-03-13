@@ -1,6 +1,6 @@
 {
   "name": "@ezpzai/cdx",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Use Codex more easily, even away from your desk.",
   "type": "module",
   "files": [
@@ -44,7 +44,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@ezpzai/cdx": "^1.0.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/headless": "^6.0.0",
     "@xterm/xterm": "^6.0.0",

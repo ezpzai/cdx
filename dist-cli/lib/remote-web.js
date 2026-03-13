@@ -93,11 +93,6 @@ const THEMES = {
     },
   },
 };
-const THEME_LABELS = {
-  'modern-dark': 'Midnight',
-  sepia: 'Sepia',
-  teal: 'Lagoon',
-};
 const STATUS_LABELS = {
   waiting: 'Idle',
   starting: 'Starting',
@@ -135,17 +130,13 @@ const els = {
   promptForm: document.querySelector('[data-prompt-form]'),
   promptInput: document.querySelector('[data-prompt-input]'),
   promptButton: document.querySelector('[data-prompt-button]'),
+  keyButtons: Array.from(document.querySelectorAll('[data-key-button]')),
   interruptButton: document.querySelector('[data-interrupt-button]'),
   reconnectButton: document.querySelector('[data-reconnect-button]'),
   status: document.querySelector('[data-remote-status]'),
   statusLabel: document.querySelector('[data-status-label]'),
-  themeToggle: document.querySelector('[data-theme-toggle]'),
-  themeMenu: document.querySelector('[data-theme-menu]'),
-  themeToggleLabel: document.querySelector('[data-theme-toggle-label]'),
-  themeSwatch: document.querySelector('[data-theme-swatch]'),
-  themeOptions: Array.from(document.querySelectorAll('[data-theme-option]')),
+  themeButtons: Array.from(document.querySelectorAll('[data-theme-button]')),
   terminal: document.querySelector('[data-terminal]'),
-  terminalTouchSurface: document.querySelector('[data-terminal-touch-surface]'),
   themeColor: document.querySelector('meta[name="theme-color"]'),
 };
 
@@ -153,20 +144,25 @@ let socket = null;
 let pollingTimer = null;
 let authenticated = !CONFIG.otpRequired;
 let lastEventId = 0;
-let authToken = null;
 let terminal = null;
 let fitAddon = null;
 let resizeTimer = null;
 let hasBootstrappedTerminal = false;
-let terminalTouchY = null;
-let terminalTouchRemainder = 0;
-let terminalTouchPointerId = null;
-let themeMenuOpen = false;
-let liveSlashDraft = '';
+let inputQueue = [];
+let isComposing = false;
 const withInviteToken = (path) => \`\${path}?t=\${encodeURIComponent(CONFIG.inviteToken)}\`;
-const withAuth = (path) => {
-  const separator = path.includes('?') ? '&' : '?';
-  return authToken ? \`\${path}\${separator}a=\${encodeURIComponent(authToken)}\` : path;
+const BRACKETED_PASTE_START = '\\u001B[200~';
+const BRACKETED_PASTE_END = '\\u001B[201~';
+const KEY_INPUTS = {
+  enter: '\\r',
+  esc: '\\u001B',
+  tab: '\\t',
+  up: '\\u001B[A',
+  down: '\\u001B[B',
+  left: '\\u001B[D',
+  right: '\\u001B[C',
+  backspace: '\\u007F',
+  ctrlc: '\\u0003',
 };
 
 const getStoredTheme = () => {
@@ -196,6 +192,63 @@ const loadStylesheet = (href) => {
 
 const formatStatusLabel = (v) => STATUS_LABELS[v] || v;
 const getStatusTone = (v) => STATUS_TONES[v] || 'idle';
+const focusPromptInput = () => els.promptInput.focus({ preventScroll: true });
+const clearPromptInput = () => {
+  els.promptInput.value = '';
+  els.promptInput.style.height = '';
+};
+const takePromptInputValue = () => {
+  const value = els.promptInput.value;
+  clearPromptInput();
+  return value;
+};
+const normalizeText = (value) => value.replace(/\\r\\n/g, '\\n').replace(/\\r/g, '\\n');
+const flushInputQueue = () => {
+  if (!authenticated || !socket || socket.readyState !== WebSocket.OPEN || inputQueue.length === 0) {
+    return;
+  }
+  socket.send(JSON.stringify({ type: 'input', data: inputQueue.join('') }));
+  inputQueue = [];
+};
+const queueRawInput = (value) => {
+  if (!value) {
+    return;
+  }
+  inputQueue.push(value);
+  flushInputQueue();
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    setRemoteStatus('reconnecting');
+    if (authenticated) {
+      void connect();
+    }
+  }
+};
+const queueTerminalInput = (value) => {
+  const normalized = normalizeText(value).replace(/\\n/g, '\\r');
+  if (!normalized) {
+    return;
+  }
+  queueRawInput(normalized);
+};
+const queueTerminalPaste = (value) => {
+  const normalized = normalizeText(value);
+  if (!normalized) {
+    return;
+  }
+  queueRawInput(\`\${BRACKETED_PASTE_START}\${normalized}\${BRACKETED_PASTE_END}\`);
+};
+const sendTerminalKey = (key) => {
+  const value = KEY_INPUTS[key];
+  if (value) {
+    queueRawInput(value);
+  }
+};
+const flushPromptInput = () => {
+  const value = takePromptInputValue();
+  if (value) {
+    queueTerminalInput(value);
+  }
+};
 
 const ensureTerminal = async () => {
   if (terminal) return terminal;
@@ -209,6 +262,7 @@ const ensureTerminal = async () => {
     convertEol: true,
     cursorBlink: true,
     cursorStyle: 'bar',
+    cursorInactiveStyle: 'outline',
     cursorWidth: 2,
     disableStdin: true,
     fontFamily: '"IBM Plex Mono", "SF Mono", "Menlo", monospace',
@@ -220,12 +274,6 @@ const ensureTerminal = async () => {
   fitAddon = new F();
   terminal.loadAddon(fitAddon);
   terminal.open(els.terminal);
-  const viewport = els.terminal.querySelector('.xterm-viewport');
-  if (viewport instanceof HTMLElement) {
-    viewport.style.overscrollBehaviorY = 'contain';
-    viewport.style.webkitOverflowScrolling = 'touch';
-  }
-  bindTerminalTouchSurface();
   fitTerminal();
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
@@ -239,108 +287,6 @@ const fitTerminal = () => { if (fitAddon && terminal) fitAddon.fit(); };
 const sendResize = () => {
   if (!terminal || !socket || socket.readyState !== WebSocket.OPEN) return;
   socket.send(JSON.stringify({ type: 'resize', cols: terminal.cols, rows: terminal.rows }));
-};
-
-const getTerminalLineHeightPx = () => {
-  const firstRow = els.terminal.querySelector('.xterm-rows > div');
-  if (firstRow instanceof HTMLElement) {
-    const measured = firstRow.getBoundingClientRect().height;
-    if (measured > 0) return measured;
-  }
-
-  const viewport = els.terminal.querySelector('.xterm-viewport');
-  const containerHeight =
-    viewport instanceof HTMLElement ? viewport.clientHeight : els.terminal.clientHeight || 0;
-  return Math.max(containerHeight / Math.max(terminal?.rows || 1, 1), 1);
-};
-
-const scrollTerminalFromTouchDelta = (deltaY) => {
-  if (!terminal) return false;
-  terminalTouchRemainder += deltaY;
-  const lineHeightPx = getTerminalLineHeightPx();
-  if (!Number.isFinite(lineHeightPx) || lineHeightPx <= 0) return false;
-  const lines = Math.trunc(terminalTouchRemainder / lineHeightPx);
-  if (lines === 0) return false;
-  terminal.scrollLines(lines);
-  terminalTouchRemainder -= lines * lineHeightPx;
-  return true;
-};
-
-const resetTerminalTouchScroll = () => {
-  terminalTouchY = null;
-  terminalTouchRemainder = 0;
-  terminalTouchPointerId = null;
-};
-
-const handleTerminalTouchStart = (event) => {
-  if (!terminal || event.touches.length !== 1) return;
-  terminalTouchY = event.touches[0].clientY;
-  terminalTouchRemainder = 0;
-  event.preventDefault();
-};
-
-const handleTerminalTouchMove = (event) => {
-  if (!terminal || terminalTouchY === null || event.touches.length !== 1) return;
-  const nextY = event.touches[0].clientY;
-  scrollTerminalFromTouchDelta(terminalTouchY - nextY);
-  terminalTouchY = nextY;
-  event.preventDefault();
-};
-
-const handleTerminalPointerDown = (event) => {
-  if (!terminal || event.pointerType !== 'touch') return;
-  terminalTouchPointerId = event.pointerId;
-  terminalTouchY = event.clientY;
-  terminalTouchRemainder = 0;
-  if (event.currentTarget instanceof HTMLElement) {
-    try {
-      event.currentTarget.setPointerCapture?.(event.pointerId);
-    } catch {
-      // Some browsers reject pointer capture for synthetic or early touch events.
-    }
-  }
-  event.preventDefault();
-};
-
-const handleTerminalPointerMove = (event) => {
-  if (
-    !terminal ||
-    event.pointerType !== 'touch' ||
-    terminalTouchPointerId !== event.pointerId ||
-    terminalTouchY === null
-  ) {
-    return;
-  }
-
-  const nextY = event.clientY;
-  scrollTerminalFromTouchDelta(terminalTouchY - nextY);
-  terminalTouchY = nextY;
-  event.preventDefault();
-};
-
-const bindTerminalTouchSurface = () => {
-  const surface = els.terminalTouchSurface;
-  if (!(surface instanceof HTMLElement) || surface.dataset.touchScrollBound === 'true') return;
-  surface.dataset.touchScrollBound = 'true';
-
-  if ('PointerEvent' in window) {
-    surface.addEventListener('pointerdown', handleTerminalPointerDown, { passive: false });
-    surface.addEventListener('pointermove', handleTerminalPointerMove, { passive: false });
-    surface.addEventListener('pointerup', resetTerminalTouchScroll, { passive: true });
-    surface.addEventListener('pointercancel', resetTerminalTouchScroll, { passive: true });
-    return;
-  }
-
-  surface.addEventListener('touchstart', handleTerminalTouchStart, { passive: false });
-  surface.addEventListener('touchmove', handleTerminalTouchMove, { passive: false });
-  surface.addEventListener('touchend', resetTerminalTouchScroll, { passive: true });
-  surface.addEventListener('touchcancel', resetTerminalTouchScroll, { passive: true });
-};
-
-const sendInput = (data) => {
-  if (!data || !socket || socket.readyState !== WebSocket.OPEN) return false;
-  socket.send(JSON.stringify({ type: 'input', data }));
-  return true;
 };
 
 const setAuthMessage = (v, tone = 'neutral') => {
@@ -364,63 +310,15 @@ const setRemoteStatus = (v) => {
   if (els.statusLabel) els.statusLabel.textContent = v;
 };
 
-const closeThemeMenu = () => {
-  themeMenuOpen = false;
-  els.themeToggle?.setAttribute('aria-expanded', 'false');
-  els.themeMenu?.setAttribute('hidden', '');
-};
-
-const openThemeMenu = () => {
-  themeMenuOpen = true;
-  els.themeToggle?.setAttribute('aria-expanded', 'true');
-  els.themeMenu?.removeAttribute('hidden');
-};
-
-const toggleThemeMenu = () => {
-  if (themeMenuOpen) closeThemeMenu();
-  else openThemeMenu();
-};
-
-const syncSlashDraft = () => {
-  const value = els.promptInput.value;
-  const isSlashDraft = value.startsWith('/') && !value.includes('\\n');
-
-  if (!isSlashDraft) {
-    if (liveSlashDraft) {
-      sendInput('\\u0015');
-      liveSlashDraft = '';
-    }
-    return false;
-  }
-
-  let delta = '';
-  if (value.startsWith(liveSlashDraft)) {
-    delta = value.slice(liveSlashDraft.length);
-  } else if (liveSlashDraft.startsWith(value)) {
-    delta = '\\b'.repeat(liveSlashDraft.length - value.length);
-  } else {
-    delta = '\\u0015' + value;
-  }
-
-  const sent = sendInput(delta);
-  if (sent) {
-    liveSlashDraft = value;
-  }
-  return sent;
-};
-
 const applyTheme = (theme) => {
   const t = theme in THEMES ? theme : 'modern-dark';
   document.documentElement.dataset.theme = t;
   document.documentElement.style.colorScheme = t === 'teal' ? 'light' : 'dark';
   window.localStorage.setItem(THEME_KEY, t);
   if (els.themeColor) els.themeColor.setAttribute('content', THEMES[t].metaColor);
-  if (els.themeToggleLabel) els.themeToggleLabel.textContent = THEME_LABELS[t];
-  if (els.themeSwatch) els.themeSwatch.style.background = THEMES[t].terminal.cursor;
-  els.themeOptions.forEach((option) => {
-    const active = option.dataset.themeOption === t;
-    option.dataset.active = active ? 'true' : 'false';
-    option.setAttribute('aria-pressed', active ? 'true' : 'false');
+  els.themeButtons.forEach((b) => {
+    b.dataset.active = b.dataset.themeButton === t ? 'true' : 'false';
+    b.setAttribute('aria-pressed', b.dataset.themeButton === t ? 'true' : 'false');
   });
   if (terminal) terminal.options.theme = THEMES[t].terminal;
 };
@@ -450,8 +348,7 @@ const renderSnapshot = async (snap) => {
 
 const fetchSnapshot = async () => {
   try {
-    const sessionPath = withAuth(\`/api/session?t=\${encodeURIComponent(CONFIG.inviteToken)}\`);
-    const r = await fetch(sessionPath, { credentials: 'same-origin' });
+    const r = await fetch(\`/api/session?t=\${encodeURIComponent(CONFIG.inviteToken)}\`, { credentials: 'same-origin' });
     if (r.status === 401) { await setAuthenticated(false); setAuthMessage('Check the code and try again.', 'warn'); return; }
     await renderSnapshot(await r.json());
   } catch (e) {
@@ -467,20 +364,17 @@ const startPolling = () => {
 const connect = async () => {
   if (!authenticated) return;
   await ensureTerminal();
-  if (socket && socket.readyState === WebSocket.OPEN) return;
+  if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const q = lastEventId > 0
     ? \`cursor=\${encodeURIComponent(String(lastEventId))}\`
     : 'bootstrap=snapshot';
-  socket = new WebSocket(\`\${proto}//\${location.host}\${withAuth(\`/api/ws?t=\${encodeURIComponent(CONFIG.inviteToken)}&\${q}\`)}\`);
+  socket = new WebSocket(\`\${proto}//\${location.host}/api/ws?t=\${encodeURIComponent(CONFIG.inviteToken)}&\${q}\`);
   socket.addEventListener('open', () => {
     setRemoteStatus('live');
     clearInterval(pollingTimer);
     sendResize();
-    if (els.promptInput.value.startsWith('/')) {
-      liveSlashDraft = '';
-      syncSlashDraft();
-    }
+    flushInputQueue();
   });
   socket.addEventListener('message', async (ev) => {
     const p = JSON.parse(String(ev.data));
@@ -494,8 +388,8 @@ const connect = async () => {
     }
     if (p.type === 'status') setRemoteStatus(p.status);
   });
-  socket.addEventListener('close', () => { setRemoteStatus('reconnecting'); socket = null; liveSlashDraft = ''; startPolling(); });
-  socket.addEventListener('error', () => { setRemoteStatus('socket error'); socket = null; liveSlashDraft = ''; startPolling(); });
+  socket.addEventListener('close', () => { setRemoteStatus('reconnecting'); socket = null; startPolling(); });
+  socket.addEventListener('error', () => { setRemoteStatus('socket error'); socket = null; startPolling(); });
 };
 
 /* ── OTP submit ── */
@@ -511,93 +405,122 @@ els.otpForm.addEventListener('submit', async (e) => {
       body: JSON.stringify({ token: CONFIG.inviteToken, otp }),
     });
     if (!r.ok) { const d = await r.json().catch(() => null); throw new Error(d?.message || 'Authentication failed'); }
-    const payload = await r.json().catch(() => null);
-    authToken = typeof payload?.authToken === 'string' ? payload.authToken : null;
     await setAuthenticated(true);
     setAuthMessage('', 'neutral');
     connect();
+    focusPromptInput();
   } catch (e) { setAuthMessage(e instanceof Error ? e.message : 'Authentication failed', 'warn'); }
 });
 
 /* ── Prompt submit ── */
 els.promptForm.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const promptValue = els.promptInput.value;
-  const prompt = promptValue.trim();
-  if (!prompt) return;
-  els.promptButton.disabled = true;
-  try {
-    const submittedLiveSlash =
-      liveSlashDraft.length > 0 &&
-      promptValue === liveSlashDraft &&
-      sendInput('\\r');
-
-    if (!submittedLiveSlash) {
-      if (liveSlashDraft) {
-        sendInput('\\u0015');
-        liveSlashDraft = '';
-      }
-
-      const promptPath = withAuth(\`/api/prompts?t=\${encodeURIComponent(CONFIG.inviteToken)}\`);
-      const r = await fetch(promptPath, {
-        method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt }),
-      });
-      if (!r.ok) { const d = await r.json().catch(() => null); throw new Error(d?.message || 'Send failed'); }
-    }
-
-    els.promptInput.value = '';
-    liveSlashDraft = '';
-    els.promptInput.focus();
-  } catch (e) { setRemoteStatus(e instanceof Error ? e.message : 'Prompt send failed'); }
-  finally { els.promptButton.disabled = false; }
+  flushPromptInput();
+  sendTerminalKey('enter');
+  focusPromptInput();
 });
 
 els.promptInput.addEventListener('keydown', (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); els.promptForm.requestSubmit(); }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+    e.preventDefault();
+    clearPromptInput();
+    sendTerminalKey('ctrlc');
+    focusPromptInput();
+    return;
+  }
+
+  if (e.key === 'Backspace' && els.promptInput.value.length === 0) {
+    e.preventDefault();
+    sendTerminalKey('backspace');
+    focusPromptInput();
+    return;
+  }
+
+  const mapped = {
+    Enter: 'enter',
+    Escape: 'esc',
+    Tab: 'tab',
+    ArrowUp: 'up',
+    ArrowDown: 'down',
+    ArrowLeft: 'left',
+    ArrowRight: 'right',
+  }[e.key];
+
+  if (mapped) {
+    e.preventDefault();
+    flushPromptInput();
+    sendTerminalKey(mapped);
+    focusPromptInput();
+  }
 });
-els.promptInput.addEventListener('input', () => {
-  syncSlashDraft();
+
+els.promptInput.addEventListener('compositionstart', () => {
+  isComposing = true;
+});
+
+els.promptInput.addEventListener('compositionend', () => {
+  isComposing = false;
+});
+
+els.promptInput.addEventListener('input', (e) => {
+  if (isComposing) {
+    return;
+  }
+
+  const inputEvent = e;
+  const value = takePromptInputValue();
+  if (!value) {
+    return;
+  }
+
+  if (inputEvent.inputType === 'insertFromPaste') {
+    queueTerminalPaste(value);
+  } else {
+    queueTerminalInput(value);
+  }
+});
+
+els.promptInput.addEventListener('paste', (e) => {
+  const value = e.clipboardData?.getData('text');
+  if (!value) {
+    return;
+  }
+  e.preventDefault();
+  clearPromptInput();
+  queueTerminalPaste(value);
+  focusPromptInput();
 });
 
 els.interruptButton.addEventListener('click', async () => {
-  try { await fetch(withAuth(\`/api/interrupt?t=\${encodeURIComponent(CONFIG.inviteToken)}\`), { method: 'POST', credentials: 'same-origin' }); }
+  try { await fetch(\`/api/interrupt?t=\${encodeURIComponent(CONFIG.inviteToken)}\`, { method: 'POST', credentials: 'same-origin' }); }
   catch (e) { setRemoteStatus(e instanceof Error ? e.message : 'Interrupt failed'); }
 });
 
 els.reconnectButton.addEventListener('click', async () => { await fetchSnapshot(); connect(); });
-els.themeToggle.addEventListener('click', () => {
-  toggleThemeMenu();
-});
-els.themeOptions.forEach((option) => {
-  option.addEventListener('click', () => {
-    applyTheme(option.dataset.themeOption || 'modern-dark');
-    closeThemeMenu();
-  });
-});
-document.addEventListener('click', (event) => {
-  const target = event.target;
-  if (
-    themeMenuOpen &&
-    target instanceof Node &&
-    !els.themeMenu?.contains(target) &&
-    !els.themeToggle?.contains(target)
-  ) {
-    closeThemeMenu();
-  }
-});
-document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape') closeThemeMenu();
-});
 
 /* ── Theme ── */
 applyTheme(getStoredTheme());
+els.themeButtons.forEach((b) => {
+  b.addEventListener('click', () => applyTheme(b.dataset.themeButton || 'modern-dark'));
+});
+els.keyButtons.forEach((button) => {
+  button.addEventListener('click', () => {
+    flushPromptInput();
+    sendTerminalKey(button.dataset.keyButton || '');
+    focusPromptInput();
+  });
+});
+els.terminal.addEventListener('pointerdown', () => {
+  focusPromptInput();
+});
 
 /* ── Init ── */
 (async () => {
   await setAuthenticated(authenticated);
-  if (authenticated) connect();
+  if (authenticated) {
+    connect();
+    focusPromptInput();
+  }
   else setAuthMessage(\`Enter the 6-digit code shown on your desktop.\`, 'neutral');
 })();
 `;
@@ -623,11 +546,7 @@ export function renderRemotePage(config) {
   <style>
     /* ── reset ── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body {
-      height: 100%;
-      overflow: hidden;
-      overscroll-behavior-y: none;
-    }
+    html, body { height: 100%; overflow: hidden; }
     button, input, textarea { font: inherit; }
     button { cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
     button:disabled { cursor: wait; opacity: 0.5; }
@@ -805,8 +724,6 @@ export function renderRemotePage(config) {
       display: flex;
       flex-direction: column;
       height: 100dvh;
-      overflow: hidden;
-      overscroll-behavior-y: none;
     }
 
     /* ── top bar (minimal) ── */
@@ -859,128 +776,26 @@ export function renderRemotePage(config) {
       flex-shrink: 0;
     }
 
-    .theme-shell {
-      position: relative;
+    .theme-row {
+      display: flex;
+      gap: 4px;
       margin-left: auto;
       flex-shrink: 0;
     }
 
-    .theme-trigger {
-      min-width: 112px;
-      height: 30px;
-      padding: 0 10px;
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      background: color-mix(in srgb, var(--surface) 86%, black 14%);
-      color: var(--text);
-      display: inline-flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      transition: border-color 0.15s, transform 0.15s, background 0.15s;
-    }
-    .theme-trigger:hover {
-      border-color: rgba(255, 255, 255, 0.18);
-      transform: translateY(-1px);
-    }
-
-    .theme-trigger-left {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      min-width: 0;
-    }
-
-    .theme-trigger-label {
-      font-size: 10px;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      white-space: nowrap;
-    }
-
-    .theme-swatch {
-      width: 10px;
-      height: 10px;
-      border-radius: 999px;
-      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08);
-      background: var(--accent);
-      flex-shrink: 0;
-    }
-
-    .theme-chevron {
-      width: 12px;
-      height: 12px;
-      color: var(--muted);
-      flex-shrink: 0;
-    }
-
-    .theme-menu {
-      position: absolute;
-      right: 0;
-      top: calc(100% + 8px);
-      width: 168px;
-      padding: 8px;
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      background: color-mix(in srgb, var(--surface) 88%, black 12%);
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.28);
-      backdrop-filter: blur(18px);
-      display: grid;
-      gap: 6px;
-      z-index: 5;
-    }
-
-    .theme-menu[hidden] {
-      display: none;
-    }
-
-    .theme-option {
-      width: 100%;
-      border: 1px solid transparent;
-      border-radius: 10px;
+    .theme-dot {
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      border: 1.5px solid var(--line);
       background: transparent;
-      color: var(--text);
-      padding: 9px 10px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      text-align: left;
-      transition: border-color 0.15s, background 0.15s, transform 0.15s;
+      padding: 0;
+      transition: border-color 0.15s, transform 0.15s;
     }
-    .theme-option:hover {
-      transform: translateY(-1px);
-      background: rgba(255, 255, 255, 0.04);
-    }
-    .theme-option[data-active="true"] {
-      border-color: var(--line);
-      background: rgba(255, 255, 255, 0.04);
-    }
-
-    .theme-option-swatch {
-      width: 12px;
-      height: 12px;
-      border-radius: 999px;
-      flex-shrink: 0;
-    }
-    .theme-option-swatch[data-theme-option-swatch="modern-dark"] { background: #5fddcc; }
-    .theme-option-swatch[data-theme-option-swatch="sepia"] { background: #ddb56e; }
-    .theme-option-swatch[data-theme-option-swatch="teal"] { background: #50d4c2; }
-
-    .theme-option-copy {
-      display: grid;
-      gap: 2px;
-      min-width: 0;
-    }
-
-    .theme-option-title {
-      font-size: 11px;
-      color: var(--text);
-    }
-
-    .theme-option-note {
-      font-size: 10px;
-      color: var(--muted);
-    }
+    .theme-dot:hover { transform: scale(1.15); }
+    .theme-dot[data-active="true"] { border-color: var(--accent); }
+    .theme-dot[data-theme-button="modern-dark"]  { background: #5fddcc; }
+    .theme-dot[data-theme-button="sepia"]         { background: #ddb56e; }
+    .theme-dot[data-theme-button="teal"]          { background: #50d4c2; }
 
     /* ── terminal area ── */
     .terminal-area {
@@ -990,8 +805,6 @@ export function renderRemotePage(config) {
       min-height: 0;
       background: var(--terminal-bg);
       overflow: hidden;
-      overscroll-behavior-y: contain;
-      touch-action: pan-y;
     }
     .terminal-area::after {
       content: "";
@@ -1006,32 +819,7 @@ export function renderRemotePage(config) {
     }
 
     .terminal-host {
-      position: relative;
       height: calc(100% - var(--terminal-mask-height));
-      overscroll-behavior-y: contain;
-      touch-action: pan-y;
-    }
-
-    .terminal-host .xterm,
-    .terminal-host .xterm-scrollable-element,
-    .terminal-host .xterm-viewport {
-      overscroll-behavior-y: contain;
-      touch-action: pan-y;
-      -webkit-overflow-scrolling: touch;
-    }
-
-    .terminal-touch-surface {
-      display: none;
-    }
-
-    @media (hover: none), (pointer: coarse) {
-      .terminal-touch-surface {
-        display: block;
-        position: absolute;
-        inset: 0 0 var(--terminal-mask-height) 0;
-        z-index: 1;
-        touch-action: none;
-      }
     }
 
     /* ── bottom prompt bar ── */
@@ -1046,10 +834,25 @@ export function renderRemotePage(config) {
       flex-shrink: 0;
     }
 
+    .prompt-stack {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .prompt-entry {
+      display: flex;
+      align-items: flex-end;
+      gap: 6px;
+      min-width: 0;
+    }
+
     .prompt-input {
       flex: 1;
       min-height: 38px;
-      max-height: 120px;
+      height: 38px;
       padding: 9px 12px;
       border: 1px solid var(--line);
       border-radius: 8px;
@@ -1058,8 +861,13 @@ export function renderRemotePage(config) {
       font-size: 13px;
       line-height: 1.4;
       resize: none;
+      overflow: hidden;
     }
     .prompt-input:focus { border-color: var(--accent); }
+
+    .prompt-input::placeholder {
+      color: var(--muted);
+    }
 
     .prompt-send {
       width: 38px; height: 38px;
@@ -1074,6 +882,34 @@ export function renderRemotePage(config) {
     .prompt-send:hover { opacity: 0.88; }
 
     .prompt-send svg { width: 16px; height: 16px; }
+
+    .key-row {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .key-row::-webkit-scrollbar { display: none; }
+
+    .key-chip {
+      min-width: 46px;
+      height: 30px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: color 0.15s, border-color 0.15s, background 0.15s;
+    }
+    .key-chip:hover {
+      color: var(--text);
+      border-color: var(--muted);
+      background: rgba(255, 255, 255, 0.03);
+    }
 
     .btn-icon {
       width: 38px; height: 38px;
@@ -1093,8 +929,14 @@ export function renderRemotePage(config) {
     /* ── xterm overrides ── */
     .xterm { padding: 4px; }
     .xterm .xterm-cursor-layer .xterm-cursor {
-      box-shadow: none !important;
-      outline: none !important;
+      box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 45%, transparent) !important;
+    }
+    .xterm .xterm-cursor-layer .xterm-cursor.xterm-cursor-outline {
+      outline: 1px solid var(--accent) !important;
+      outline-offset: -1px;
+    }
+    .xterm .xterm-cursor-layer .xterm-cursor.xterm-cursor-bar {
+      border-left-color: var(--accent) !important;
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -1106,7 +948,10 @@ export function renderRemotePage(config) {
 
     /* ── wider screens: side-by-side prompt ── */
     @media (min-width: 960px) {
-      .prompt-input { max-height: 160px; }
+      .key-row {
+        flex-wrap: wrap;
+        overflow: visible;
+      }
     }
   </style>
 </head>
@@ -1155,45 +1000,15 @@ export function renderRemotePage(config) {
       <span class="remote-meta">${safeProfile} · ${safeMode}</span>
       <span class="status-dot" data-remote-status data-state="idle"></span>
       <span class="status-text" data-status-label>Idle</span>
-      <div class="theme-shell">
-        <button class="theme-trigger" type="button" data-theme-toggle aria-expanded="false" aria-haspopup="menu" aria-label="Choose theme">
-          <span class="theme-trigger-left">
-            <span class="theme-swatch" data-theme-swatch></span>
-            <span class="theme-trigger-label" data-theme-toggle-label>Midnight</span>
-          </span>
-          <svg class="theme-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <polyline points="6 9 12 15 18 9"></polyline>
-          </svg>
-        </button>
-        <div class="theme-menu" data-theme-menu hidden>
-          <button class="theme-option" type="button" data-theme-option="modern-dark" data-active="true" aria-pressed="true">
-            <span class="theme-option-swatch" data-theme-option-swatch="modern-dark"></span>
-            <span class="theme-option-copy">
-              <span class="theme-option-title">Midnight</span>
-              <span class="theme-option-note">Dark glass + cyan cursor</span>
-            </span>
-          </button>
-          <button class="theme-option" type="button" data-theme-option="sepia" data-active="false" aria-pressed="false">
-            <span class="theme-option-swatch" data-theme-option-swatch="sepia"></span>
-            <span class="theme-option-copy">
-              <span class="theme-option-title">Sepia</span>
-              <span class="theme-option-note">Warm paper + amber glow</span>
-            </span>
-          </button>
-          <button class="theme-option" type="button" data-theme-option="teal" data-active="false" aria-pressed="false">
-            <span class="theme-option-swatch" data-theme-option-swatch="teal"></span>
-            <span class="theme-option-copy">
-              <span class="theme-option-title">Lagoon</span>
-              <span class="theme-option-note">Cool ink + bright seafoam</span>
-            </span>
-          </button>
-        </div>
+      <div class="theme-row">
+        <button class="theme-dot" type="button" data-theme-button="modern-dark" data-active="true" aria-pressed="true" aria-label="Dark"></button>
+        <button class="theme-dot" type="button" data-theme-button="sepia" data-active="false" aria-pressed="false" aria-label="Sepia"></button>
+        <button class="theme-dot" type="button" data-theme-button="teal" data-active="false" aria-pressed="false" aria-label="Teal"></button>
       </div>
     </div>
 
     <div class="terminal-area">
       <div class="terminal-host" data-terminal></div>
-      <div class="terminal-touch-surface" data-terminal-touch-surface aria-hidden="true"></div>
     </div>
 
     <div class="prompt-bar">
@@ -1203,19 +1018,32 @@ export function renderRemotePage(config) {
       <button class="btn-icon" type="button" data-reconnect-button aria-label="Reconnect">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
       </button>
-      <form class="prompt-bar" style="display:contents" data-prompt-form>
-        <textarea
-          class="prompt-input"
-          rows="1"
-          data-prompt-input
-          autocomplete="off"
-          autocapitalize="off"
-          spellcheck="false"
-        ></textarea>
-        <button class="prompt-send" type="submit" data-prompt-button aria-label="Send">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94l18-8a.75.75 0 0 0 0-1.38l-18-8Z"/></svg>
-        </button>
-      </form>
+      <div class="prompt-stack">
+        <form class="prompt-entry" data-prompt-form>
+          <textarea
+            class="prompt-input"
+            rows="1"
+            data-prompt-input
+            autocomplete="off"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck="false"
+            enterkeyhint="enter"
+            placeholder="Enter your prompt here"
+          ></textarea>
+          <button class="prompt-send" type="submit" data-prompt-button aria-label="Enter">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94l18-8a.75.75 0 0 0 0-1.38l-18-8Z"/></svg>
+          </button>
+        </form>
+        <div class="key-row" aria-label="Helper keys">
+          <button class="key-chip" type="button" data-key-button="esc">Esc</button>
+          <button class="key-chip" type="button" data-key-button="tab">Tab</button>
+          <button class="key-chip" type="button" data-key-button="up">Up</button>
+          <button class="key-chip" type="button" data-key-button="down">Down</button>
+          <button class="key-chip" type="button" data-key-button="ctrlc">Ctrl+C</button>
+          <button class="key-chip" type="button" data-key-button="enter">Enter</button>
+        </div>
+      </div>
     </div>
   </section>
 

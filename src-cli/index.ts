@@ -26,7 +26,6 @@ import { fetchCodexUsage, fetchRemotePreflightUsage } from "./lib/usage.js";
 import { listTrustedDevices, revokeAllTrustedDevices, revokeTrustedDevice } from "./lib/remote-devices.js";
 import { startRemoteSession } from "./lib/remote.js";
 import { formatCloudflaredInstallHelp, isCloudflaredMissingError } from "./lib/remote-tunnel.js";
-import { maybeRunStartupUpdate } from "./lib/updater.js";
 import {
   buildHandoffPrompt,
   buildPreflight,
@@ -828,10 +827,8 @@ async function handleUsage(args: string[]): Promise<void> {
       console.log(`  ${C}${row.profile}${R}  ${D}${account}${R}  ${RED}${row.error}${R}`);
       continue;
     }
-    const fiveHour =
-      formatColoredQuotaValue(row.fiveHourLeft, row.fiveHourReset);
-    const weekly =
-      formatColoredQuotaValue(row.weeklyLeft, row.weeklyReset);
+    const fiveHour = formatColoredQuotaValue(row.fiveHourLeft, row.fiveHourReset);
+    const weekly = formatColoredQuotaValue(row.weeklyLeft, row.weeklyReset);
     console.log(
       `  ${C}${row.profile}${R}  ${D}${account}${R}  ${D}${plan}${R}  ${W}5h${R} ${fiveHour}  ${W}week${R} ${weekly}`,
     );
@@ -948,10 +945,6 @@ async function main(): Promise<void> {
 
   if (!command || command === "help" || command === "--help" || command === "-h") {
     printHelp();
-    return;
-  }
-
-  if ((await maybeRunStartupUpdate()) === "updated") {
     return;
   }
 
