@@ -5,6 +5,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
   id-token: write
@@ -20,7 +24,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Skip release commit pushes
+      - name: Guard release conditions
         id: guard
         env:
           ACTOR: ${{ github.actor }}
@@ -39,8 +43,21 @@ jobs:
               ;;
           esac
 
-      - name: Setup Node.js
+      - name: Guard stale main runs
         if: steps.guard.outputs.skip != 'true'
+        id: stale_main_guard
+        run: |
+          git fetch origin main --depth=1
+          LATEST_MAIN_SHA=$(git rev-parse origin/main)
+          if [ "$GITHUB_SHA" != "$LATEST_MAIN_SHA" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skip stale release run (event SHA: $GITHUB_SHA, latest main: $LATEST_MAIN_SHA)"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Node.js
+        if: steps.guard.outputs.skip != 'true' && steps.stale_main_guard.outputs.skip != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -48,17 +65,17 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Configure git author
-        if: steps.guard.outputs.skip != 'true'
+        if: steps.guard.outputs.skip != 'true' && steps.stale_main_guard.outputs.skip != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Install dependencies
-        if: steps.guard.outputs.skip != 'true'
+        if: steps.guard.outputs.skip != 'true' && steps.stale_main_guard.outputs.skip != 'true'
         run: npm ci
 
       - name: Bump patch version
-        if: steps.guard.outputs.skip != 'true'
+        if: steps.guard.outputs.skip != 'true' && steps.stale_main_guard.outputs.skip != 'true'
         id: version
         run: |
           npm version patch --no-git-tag-version
@@ -66,21 +83,34 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Typecheck
-        if: steps.guard.outputs.skip != 'true'
+        if: steps.guard.outputs.skip != 'true' && steps.stale_main_guard.outputs.skip != 'true'
         run: npm run typecheck
 
       - name: Build
-        if: steps.guard.outputs.skip != 'true'
+        if: steps.guard.outputs.skip != 'true' && steps.stale_main_guard.outputs.skip != 'true'
         run: npm run build
 
+      - name: Guard stale runs before publish
+        if: steps.guard.outputs.skip != 'true' && steps.stale_main_guard.outputs.skip != 'true'
+        id: prepublish_stale_guard
+        run: |
+          git fetch origin main --depth=1
+          LATEST_MAIN_SHA=$(git rev-parse origin/main)
+          if [ "$GITHUB_SHA" != "$LATEST_MAIN_SHA" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skip publish on stale run (event SHA: $GITHUB_SHA, latest main: $LATEST_MAIN_SHA)"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish to npm
-        if: steps.guard.outputs.skip != 'true'
+        if: steps.guard.outputs.skip != 'true' && steps.stale_main_guard.outputs.skip != 'true' && steps.prepublish_stale_guard.outputs.skip != 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public --provenance
 
       - name: Commit release metadata
-        if: steps.guard.outputs.skip != 'true'
+        if: steps.guard.outputs.skip != 'true' && steps.stale_main_guard.outputs.skip != 'true' && steps.prepublish_stale_guard.outputs.skip != 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -89,7 +119,7 @@ jobs:
           git tag "v$VERSION"
 
       - name: Push release commit and tag
-        if: steps.guard.outputs.skip != 'true'
+        if: steps.guard.outputs.skip != 'true' && steps.stale_main_guard.outputs.skip != 'true' && steps.prepublish_stale_guard.outputs.skip != 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -97,7 +127,7 @@ jobs:
           git push origin "v$VERSION"
 
       - name: Package release assets
-        if: steps.guard.outputs.skip != 'true'
+        if: steps.guard.outputs.skip != 'true' && steps.stale_main_guard.outputs.skip != 'true' && steps.prepublish_stale_guard.outputs.skip != 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -109,7 +139,7 @@ jobs:
           zip -r "cdx-v$VERSION-linux.zip" release
 
       - name: Publish GitHub release
-        if: steps.guard.outputs.skip != 'true'
+        if: steps.guard.outputs.skip != 'true' && steps.stale_main_guard.outputs.skip != 'true' && steps.prepublish_stale_guard.outputs.skip != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}
