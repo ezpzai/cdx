@@ -26,6 +26,7 @@ import { fetchCodexUsage, fetchRemotePreflightUsage } from "./lib/usage.js";
 import { listTrustedDevices, revokeAllTrustedDevices, revokeTrustedDevice } from "./lib/remote-devices.js";
 import { startRemoteSession } from "./lib/remote.js";
 import { formatCloudflaredInstallHelp, isCloudflaredMissingError } from "./lib/remote-tunnel.js";
+import { sortUsageRowsByPriority, type UsageDisplayRow } from "./lib/usage-priority.js";
 import {
   buildHandoffPrompt,
   buildPreflight,
@@ -768,7 +769,7 @@ async function handleUsage(args: string[]): Promise<void> {
   const [profileId] = positional;
   const profiles = profileId ? [await requireProfile(profileId)] : await listProfiles();
 
-  const rows = await Promise.all(
+  const rows: UsageDisplayRow[] = await Promise.all(
     profiles.map(async (profile) => {
       try {
         const snapshot = await fetchCodexUsage(profile, {
@@ -807,9 +808,10 @@ async function handleUsage(args: string[]): Promise<void> {
       }
     }),
   );
+  const sortedRows = sortUsageRowsByPriority(rows);
 
   if (json) {
-    console.log(JSON.stringify(rows, null, 2));
+    console.log(JSON.stringify(sortedRows, null, 2));
     return;
   }
 
@@ -820,7 +822,7 @@ async function handleUsage(args: string[]): Promise<void> {
   const W = "\u001B[97m";
   const RED = "\u001B[91m";
 
-  for (const row of rows) {
+  for (const row of sortedRows) {
     const account = String(row.account).slice(0, 38);
     const plan = row.plan || "unknown";
     if (row.error) {

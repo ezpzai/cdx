@@ -11,6 +11,7 @@ import { fetchCodexUsage, fetchRemotePreflightUsage } from "./lib/usage.js";
 import { listTrustedDevices, revokeAllTrustedDevices, revokeTrustedDevice } from "./lib/remote-devices.js";
 import { startRemoteSession } from "./lib/remote.js";
 import { formatCloudflaredInstallHelp, isCloudflaredMissingError } from "./lib/remote-tunnel.js";
+import { sortUsageRowsByPriority } from "./lib/usage-priority.js";
 import { buildHandoffPrompt, buildPreflight, buildRecentHandoffMetadata, findConflictingCodexArgs, getModeFlags, rankCandidateProfiles, resolveEffectiveMode, shouldOfferContinuation, } from "./lib/run-flow.js";
 import { prepareGlobalAgentsFile, startLoginSession, startLogoutSession, } from "./lib/actions.js";
 function printHelp() {
@@ -620,8 +621,9 @@ async function handleUsage(args) {
             };
         }
     }));
+    const sortedRows = sortUsageRowsByPriority(rows);
     if (json) {
-        console.log(JSON.stringify(rows, null, 2));
+        console.log(JSON.stringify(sortedRows, null, 2));
         return;
     }
     console.log("");
@@ -630,7 +632,7 @@ async function handleUsage(args) {
     const C = "\u001B[96m";
     const W = "\u001B[97m";
     const RED = "\u001B[91m";
-    for (const row of rows) {
+    for (const row of sortedRows) {
         const account = String(row.account).slice(0, 38);
         const plan = row.plan || "unknown";
         if (row.error) {
