@@ -4,6 +4,7 @@ import { ensureGlobalAgentsFile, ensureGlobalAgentsLink, getAgentsStatus } from 
 import { runCodexSubcommand, ensureCodexBinary, ensureTrustedCodexWorkspace } from "./codex.js";
 import { getGlobalAgentsPath } from "./paths.js";
 import { ensureModernProfile, listProfiles, resolveProfile } from "./profiles.js";
+import { ensureSessionStorageForProfile } from "./session-storage.js";
 const actionSessions = new Map();
 const SESSION_OUTPUT_LIMIT = 40;
 function trimOutput(lines) {
@@ -63,6 +64,7 @@ export async function startRunSession(profileId, cwd, args = []) {
     const profile = await requireProfile(profileId);
     ensureCodexBinary();
     await ensureGlobalAgentsLink(cwd);
+    await ensureSessionStorageForProfile(profile);
     await ensureTrustedCodexWorkspace(profile, cwd);
     const session = createSession("run", profile.id, `Starting Codex for ${profile.id}...`);
     updateSession(session.id, { status: "starting" });

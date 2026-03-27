@@ -2,7 +2,9 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
-import { getUsageScratchDir } from "./paths.js";
+import { getUsageScratchDir, getGlobalSessionsPath } from "./paths.js";
+import { getSessionMode, loadConfig } from "./config.js";
+import { ensureSessionStorageLayout } from "./session-storage.js";
 const RUN_OUTPUT_LIMIT = 80;
 const ESC = String.fromCharCode(27);
 const BEL = String.fromCharCode(7);
@@ -58,6 +60,16 @@ export async function ensureTrustedCodexWorkspace(profile, cwd) {
         await fsp.writeFile(configPath, nextText, "utf8");
     }
 }
+async function ensureCodexHomeLayout(profile, cwd) {
+    const loaded = await loadConfig();
+    await ensureSessionStorageLayout({
+        profileId: profile.id,
+        profileHomePath: profile.homePath,
+        globalSessionsPath: getGlobalSessionsPath(),
+        mode: getSessionMode(loaded.config),
+    });
+    await ensureTrustedCodexWorkspace(profile, cwd);
+}
 function stripAnsi(input) {
     return input
         .replace(ANSI_OSC_PATTERN, "")
@@ -111,7 +123,7 @@ function appendOutput(lines, chunk) {
 }
 export async function runCodex(profile, args, cwd, options = {}) {
     ensureCodexBinary();
-    await ensureTrustedCodexWorkspace(profile, cwd);
+    await ensureCodexHomeLayout(profile, cwd);
     const captureOutput = options.captureOutput ?? false;
     return await new Promise((resolve, reject) => {
         let recentOutput = [];
@@ -151,7 +163,7 @@ export async function runCodex(profile, args, cwd, options = {}) {
 }
 export async function runCodexSubcommand(profile, args, cwd) {
     ensureCodexBinary();
-    await ensureTrustedCodexWorkspace(profile, cwd);
+    await ensureCodexHomeLayout(profile, cwd);
     return await new Promise((resolve, reject) => {
         const child = spawn("codex", args, {
             cwd,
@@ -193,6 +205,7 @@ export async function fetchCodexStatus(profile) {
     ensureCodexBinary();
     ensureScriptBinary();
     await fsp.mkdir(getUsageScratchDir(), { recursive: true });
+    await ensureCodexHomeLayout(profile, process.cwd());
     const scratchDir = await fsp.mkdtemp(path.join(getUsageScratchDir(), "session-"));
     const shellCommand = `codex --no-alt-screen -C ${JSON.stringify(scratchDir)}`;
     const child = spawn("script", ["-qfec", shellCommand, "/dev/null"], {

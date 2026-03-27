@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import * as p from "@clack/prompts";
+import pc from "picocolors";
+import Table from "cli-table3";
 import { spawn } from "node:child_process";
 import { ensureGlobalAgentsLink, getAgentsStatus } from "./lib/agents.js";
 import { runCodex } from "./lib/codex.js";
@@ -9,6 +12,7 @@ import {
   getGlobalDefaultMode,
   getLowQuotaPreferredProfiles,
   getProfileDefaultMode,
+  getSessionMode,
   loadConfig,
   rememberLowQuotaPreferredProfile,
   removeProfileState,
@@ -16,11 +20,13 @@ import {
   saveConfig,
   setGlobalDefaultMode,
   setProfileDefaultMode,
+  setSessionMode,
   type CdxConfig,
   type RunMode,
 } from "./lib/config.js";
-import { getProfilesRoot } from "./lib/paths.js";
+import { getGlobalSessionsPath, getProfilesRoot } from "./lib/paths.js";
 import { listProfiles, resolveProfile, type ProfileRecord } from "./lib/profiles.js";
+import { ensureSessionStorageForAllProfiles } from "./lib/session-storage.js";
 import { confirm, prompt, selectMode, selectOne, type SelectOneOption } from "./lib/terminal.js";
 import { fetchCodexUsage, fetchRemotePreflightUsage } from "./lib/usage.js";
 import { listTrustedDevices, revokeAllTrustedDevices, revokeTrustedDevice } from "./lib/remote-devices.js";
@@ -46,32 +52,21 @@ import {
 } from "./lib/actions.js";
 
 function printHelp(): void {
-  const R = "\u001B[0m";
-  const B = "\u001B[1m";
-  const D = "\u001B[2m";
-  const C = "\u001B[96m";
-  const Y = "\u001B[93m";
-  const W = "\u001B[97m";
+  p.intro(pc.bgCyan(pc.black(' CDX ')) + ' ' + pc.dim('Codex on mobile'));
+  
+  p.note(`  ${pc.cyan('run')}     ${pc.dim('[profile] [--mode <mode>]')}
+  ${pc.cyan('remote')}  ${pc.dim('[profile] [--tunnel <type>]')}
+  ${pc.cyan('usage')}   ${pc.dim('[profile] [--json]')}
+  ${pc.cyan('mode')}    ${pc.dim('[set <mode>] [--profile <p>]')}
+  ${pc.cyan('login')}   ${pc.dim('<profile>')}
+  ${pc.cyan('logout')}  ${pc.dim('<profile>')}
+  ${pc.cyan('ls')}      
+  ${pc.cyan('rm')}      ${pc.dim('<profile> [--force]')}
+  ${pc.cyan('session')} ${pc.dim('[status]')}
+  ${pc.cyan('agents')}  ${pc.dim('edit --global | status')}`, 'Commands');
 
-  const lines = [
-    "",
-    `${B}${C} cdx${R}  ${D}Codex on mobile${R}`,
-    "",
-    `${W}Commands${R}`,
-    `  ${C}run${R}     ${D}[profile] [--mode <mode>]${R}          Launch Codex`,
-    `  ${C}remote${R}  ${D}[profile] [--tunnel <type>]${R}        Mobile remote session`,
-    `  ${C}usage${R}   ${D}[profile] [--json]${R}                 Quota status`,
-    `  ${C}mode${R}    ${D}[set <mode>] [--profile <p>]${R}       Default mode`,
-    `  ${C}login${R}   ${D}<profile>${R}                           Create / login`,
-    `  ${C}logout${R}  ${D}<profile>${R}                           Logout`,
-    `  ${C}ls${R}                                         Profiles`,
-    `  ${C}rm${R}      ${D}<profile> [--force]${R}                 Remove profile`,
-    `  ${C}agents${R}  ${D}edit --global | status${R}              AGENTS.md`,
-    "",
-    `${W}Modes${R}  ${Y}safe${R} ${D}|${R} ${Y}balanced${R} ${D}|${R} ${Y}yolo${R}`,
-    "",
-  ];
-  console.log(lines.join("\n"));
+  p.note(`${pc.yellow('safe')} ${pc.dim('|')} ${pc.yellow('balanced')} ${pc.dim('|')} ${pc.yellow('yolo')}`, 'Modes');
+  p.outro('');
 }
 
 function printConfigWarnings(warnings: string[]): void {
@@ -815,27 +810,200 @@ async function handleUsage(args: string[]): Promise<void> {
     return;
   }
 
-  console.log("");
-  const R = "\u001B[0m";
-  const D = "\u001B[2m";
-  const C = "\u001B[96m";
-  const W = "\u001B[97m";
-  const RED = "\u001B[91m";
+
+  p.intro(pc.bgCyan(pc.black(' CDX ')) + ' ' + pc.dim('Quota Status'));
+
+  const table = new Table({
+    head: [pc.dim('Profile'), pc.dim('Account'), pc.dim('Plan'), pc.dim('5H Quota'), pc.dim('Weekly Quota')],
+    chars: {
+      'top': '', 'top-mid': '', 'top-left': '', 'top-right': '',
+      'bottom': '', 'bottom-mid': '', 'bottom-left': '', 'bottom-right': '',
+      'left': '', 'left-mid': '', 'mid': '', 'mid-mid': '',
+      'right': '', 'right-mid': '', 'middle': '  '
+    },
+    style: { 'padding-left': 0, 'padding-right': 0 }
+  });
 
   for (const row of sortedRows) {
     const account = String(row.account).slice(0, 38);
     const plan = row.plan || "unknown";
     if (row.error) {
-      console.log(`  ${C}${row.profile}${R}  ${D}${account}${R}  ${RED}${row.error}${R}`);
+      table.push([pc.cyan(row.profile), pc.dim(account), pc.dim(plan), pc.red(row.error), '']);
       continue;
     }
     const fiveHour = formatColoredQuotaValue(row.fiveHourLeft, row.fiveHourReset);
     const weekly = formatColoredQuotaValue(row.weeklyLeft, row.weeklyReset);
-    console.log(
-      `  ${C}${row.profile}${R}  ${D}${account}${R}  ${D}${plan}${R}  ${W}5h${R} ${fiveHour}  ${W}week${R} ${weekly}`,
-    );
+    
+    table.push([
+      pc.cyan(row.profile),
+      pc.dim(account),
+      pc.white(plan),
+      fiveHour,
+      weekly
+    ]);
   }
+
+  console.log('\n' + table.toString() + '\n');
+  p.outro('');
+
+}
+
+async function handleSession(args: string[]): Promise<void> {
+  const [subcommand] = args;
+  const loaded = await loadConfig();
+  printConfigWarnings(loaded.warnings);
+  let config = loaded.config;
+  const currentMode = getSessionMode(config);
+  const globalSessionsPath = getGlobalSessionsPath();
+
+  if (subcommand === "status") {
+    printSessionStatus(currentMode, globalSessionsPath);
+    return;
+  }
+
+  if (subcommand) {
+    throw new Error("Usage: cdx session [status]");
+  }
+
+  await promptAndPersistSessionMode({
+    config,
+    globalSessionsPath,
+    currentMode,
+    showCurrentStatus: true,
+    introductoryMessage: null,
+  });
+}
+
+function printSessionStatus(mode: "global" | "profile", globalSessionsPath: string): void {
+  const R = "\u001B[0m";
+  const D = "\u001B[2m";
+  const C = "\u001B[96m";
+  const Y = "\u001B[93m";
+
   console.log("");
+  console.log(`  ${D}mode${R}     ${Y}${mode}${R}`);
+  console.log(`  ${D}global${R}   ${C}${globalSessionsPath}${R}`);
+  console.log(
+    `  ${D}effect${R}   ${
+      mode === "global"
+        ? `${Y}all profiles share one sessions directory${R}`
+        : `${Y}each profile uses its own sessions directory${R}`
+    }`,
+  );
+  console.log("");
+}
+
+async function ensureSessionModeConfiguredForCommand(command: string): Promise<void> {
+  if (!["run", "remote", "usage", "login", "logout"].includes(command)) {
+    return;
+  }
+
+  if (!shouldPromptForSessionMode(command, process.argv.slice(3))) {
+    return;
+  }
+
+  const loaded = await loadConfig();
+  printConfigWarnings(loaded.warnings);
+  if (loaded.sessionModeConfigured) {
+    return;
+  }
+
+  await promptAndPersistSessionMode({
+    config: loaded.config,
+    globalSessionsPath: getGlobalSessionsPath(),
+    currentMode: getSessionMode(loaded.config),
+    showCurrentStatus: false,
+    introductoryMessage:
+      "Before the first Codex run, choose how sessions should be stored. Global mode merges discovered Codex homes into ~/.cdx/sessions so /resume shows one shared pool.",
+  });
+}
+
+function shouldPromptForSessionMode(command: string, args: readonly string[]): boolean {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    return false;
+  }
+
+  if (command === "usage" && args.includes("--json")) {
+    return false;
+  }
+
+  return true;
+}
+
+async function promptAndPersistSessionMode(input: {
+  config: CdxConfig;
+  globalSessionsPath: string;
+  currentMode: "global" | "profile";
+  showCurrentStatus: boolean;
+  introductoryMessage: string | null;
+}): Promise<void> {
+  let config = input.config;
+
+  if (input.introductoryMessage) {
+    console.log(input.introductoryMessage);
+  }
+
+  if (input.showCurrentStatus) {
+    printSessionStatus(input.currentMode, input.globalSessionsPath);
+  }
+
+  const nextMode = await selectOne(
+    "Choose a session storage mode",
+    [
+      {
+        value: "global" as const,
+        label: "global",
+        detail: `all discovered Codex homes will be merged into ${input.globalSessionsPath}`,
+      },
+      {
+        value: "profile" as const,
+        label: "profile",
+        detail: "each profile keeps its own CODEX_HOME/sessions directory",
+      },
+    ],
+    {
+      defaultValue: input.currentMode,
+      prompt: "Session mode",
+    },
+  );
+
+  if (nextMode === input.currentMode && input.showCurrentStatus) {
+    if (nextMode === "global") {
+      await ensureSessionStorageForAllProfiles();
+    }
+    console.log(`Session mode unchanged: ${nextMode}`);
+    return;
+  }
+
+  if (input.currentMode === "global" && nextMode === "profile") {
+    const confirmed = await confirm(
+      "Switch to per-profile sessions? Existing globally merged sessions stay in ~/.cdx/sessions and are not auto-split.",
+      { defaultValue: false },
+    );
+    if (!confirmed) {
+      console.log("Aborted.");
+      return;
+    }
+  }
+
+  if (nextMode === "global") {
+    const confirmed = await confirm(
+      "Use one global sessions pool? Discovered Codex homes will be scanned and merged into ~/.cdx/sessions immediately.",
+    );
+    if (!confirmed) {
+      console.log("Aborted.");
+      return;
+    }
+  }
+
+  config = setSessionMode(config, nextMode);
+  await saveConfig(config);
+
+  if (nextMode === "global") {
+    await ensureSessionStorageForAllProfiles();
+  }
+
+  console.log(`Set session mode: ${nextMode}`);
 }
 
 async function handleAgents(args: string[]): Promise<void> {
@@ -950,6 +1118,8 @@ async function main(): Promise<void> {
     return;
   }
 
+  await ensureSessionModeConfiguredForCommand(command);
+
   switch (command) {
     case "run":
       await handleRun(args);
@@ -966,6 +1136,9 @@ async function main(): Promise<void> {
       return;
     case "usage":
       await handleUsage(args);
+      return;
+    case "session":
+      await handleSession(args);
       return;
     case "agents":
       await handleAgents(args);

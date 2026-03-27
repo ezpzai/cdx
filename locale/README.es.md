@@ -58,6 +58,11 @@ cdx remote // acceso móvil
 cdx usage // revisar usage
 ```
 
+En el primer comando interactivo de Codex, `cdx` te preguntará cómo almacenar las sesiones.
+
+- `global`: escanea de inmediato los hogares de Codex detectados y fusiona sus sesiones en `~/.cdx/sessions`
+- `profile`: mantiene separado el `CODEX_HOME/sessions` de cada perfil
+
 ## Comandos principales
 
 | Comando | Descripción |
@@ -71,6 +76,7 @@ cdx usage // revisar usage
 | `cdx logout <profile>` | Inicia el logout de un perfil. |
 | `cdx ls` | Muestra los perfiles detectados. |
 | `cdx rm <profile> [--force]` | Elimina un perfil. |
+| `cdx session [status]` | Muestra o cambia de forma interactiva el modo de almacenamiento de sesiones. Predeterminado: global `~/.cdx/sessions`. |
 | `cdx agents edit --global` | Prepara y abre el `AGENTS.md` global compartido. |
 | `cdx agents status` | Comprueba el estado de conexión del `AGENTS.md` global y del proyecto. |
 
@@ -79,3 +85,7 @@ cdx usage // revisar usage
 - Enlace externo: `cdx remote <profile>`
 - Misma Wi-Fi / LAN: `cdx remote <profile> --tunnel none --lan`
 - Solo local: `cdx remote <profile> --tunnel none`
+
+El historial de versiones está en GitHub Releases:
+
+- https://github.com/ezpzai/cdx/releases

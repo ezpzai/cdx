@@ -58,6 +58,11 @@ cdx remote // 移动端访问
 cdx usage // 查看 usage
 ```
 
+首次执行交互式 Codex 命令时，`cdx` 会先询问 session 存储方式。
+
+- `global`：立即扫描已发现的 Codex home，并把 session 合并到 `~/.cdx/sessions`
+- `profile`：保留各个 profile 自己的 `CODEX_HOME/sessions`
+
 ## 主要命令
 
 | 命令 | 说明 |
@@ -71,6 +76,7 @@ cdx usage // 查看 usage
 | `cdx logout <profile>` | 启动某个 profile 的登出流程。 |
 | `cdx ls` | 显示已发现的 profile。 |
 | `cdx rm <profile> [--force]` | 删除某个 profile。 |
+| `cdx session [status]` | 查看或交互式修改 session 存储模式。默认值：全局 `~/.cdx/sessions`。 |
 | `cdx agents edit --global` | 准备并打开共享全局 `AGENTS.md`。 |
 | `cdx agents status` | 检查当前仓库与全局 `AGENTS.md` 的连接状态。 |
 
@@ -79,3 +85,7 @@ cdx usage // 查看 usage
 - 外部链接：`cdx remote <profile>`
 - 同一 Wi-Fi / LAN：`cdx remote <profile> --tunnel none --lan`
 - 仅本机：`cdx remote <profile> --tunnel none`
+
+发布历史请查看 GitHub Releases：
+
+- https://github.com/ezpzai/cdx/releases

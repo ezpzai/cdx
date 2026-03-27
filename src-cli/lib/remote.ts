@@ -8,6 +8,7 @@ import * as pty from "node-pty";
 import WebSocket, { WebSocketServer } from "ws";
 import { ensureGlobalAgentsLink } from "./agents.js";
 import { ensureCodexBinary, ensureTrustedCodexWorkspace } from "./codex.js";
+import { ensureSessionStorageForProfile } from "./session-storage.js";
 import type { RunMode } from "./config.js";
 import type { ProfileRecord } from "./profiles.js";
 import { issueTrustedDevice, resolveTrustedDevice, touchTrustedDevice, type TrustedDeviceRecord } from "./remote-devices.js";
@@ -777,6 +778,7 @@ export async function startRemoteSession(
   replayRemoteBanner();
 
   const args = [...getModeFlags(mode), "--no-alt-screen", ...codexArgs];
+  await ensureSessionStorageForProfile(profile);
   await ensureTrustedCodexWorkspace(profile, cwd);
   ptyProcess = pty.spawn("codex", args, {
     name: "xterm-256color",

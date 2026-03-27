@@ -133,8 +133,12 @@ async function listLegacyProfiles(): Promise<ProfileRecord[]> {
     .sort((left, right) => left.id.localeCompare(right.id, undefined, { numeric: true }));
 }
 
+export async function listAllProfilesIncludingDuplicates(): Promise<ProfileRecord[]> {
+  return [...(await listModernProfiles()), ...(await listLegacyProfiles())].sort(compareProfiles);
+}
+
 export async function listProfiles(): Promise<ProfileRecord[]> {
-  const profiles = [...(await listModernProfiles()), ...(await listLegacyProfiles())];
+  const profiles = await listAllProfilesIncludingDuplicates();
   const deduped = new Map<string, ProfileRecord>();
   for (const profile of profiles) {
     const existing = deduped.get(profile.id);

@@ -6,6 +6,9 @@ export function getCdxHome() {
 export function getProfilesRoot() {
     return process.env.CDX_PROFILES_ROOT || path.join(os.homedir(), ".cdx", "profiles");
 }
+export function getGlobalSessionsPath() {
+    return path.join(getCdxHome(), "sessions");
+}
 export function getCdxConfigPath() {
     return process.env.CDX_CONFIG_PATH || path.join(getCdxHome(), "config.json");
 }

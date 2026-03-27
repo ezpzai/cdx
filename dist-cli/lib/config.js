@@ -3,10 +3,12 @@ import path from "node:path";
 import { getCdxConfigPath } from "./paths.js";
 export const CONFIG_SCHEMA_VERSION = 1;
 export const RUN_MODES = ["safe", "balanced", "yolo"];
+export const SESSION_MODES = ["global", "profile"];
 export function createDefaultConfig() {
     return {
         version: CONFIG_SCHEMA_VERSION,
         defaultMode: null,
+        sessionMode: "global",
         profiles: {},
         lowQuotaPreferredProfiles: [],
         recentHandoffs: {},
@@ -14,6 +16,9 @@ export function createDefaultConfig() {
 }
 export function getGlobalDefaultMode(config) {
     return config.defaultMode;
+}
+export function getSessionMode(config) {
+    return isSessionMode(config.sessionMode) ? config.sessionMode : "global";
 }
 export function getProfileDefaultMode(config, profileId) {
     const normalizedProfileId = normalizeProfileId(profileId);
@@ -35,6 +40,12 @@ export function setGlobalDefaultMode(config, mode) {
     return {
         ...cloneConfig(config),
         defaultMode: mode,
+    };
+}
+export function setSessionMode(config, mode) {
+    return {
+        ...cloneConfig(config),
+        sessionMode: isSessionMode(mode) ? mode : "global",
     };
 }
 export function setProfileDefaultMode(config, profileId, mode) {
@@ -135,6 +146,7 @@ export async function loadConfig(configPath = getCdxConfigPath()) {
             return {
                 path: configPath,
                 exists: false,
+                sessionModeConfigured: false,
                 config: createDefaultConfig(),
                 warnings: [],
             };
@@ -142,6 +154,7 @@ export async function loadConfig(configPath = getCdxConfigPath()) {
         return {
             path: configPath,
             exists: true,
+            sessionModeConfigured: false,
             config: createDefaultConfig(),
             warnings: [formatReadError(error, configPath)],
         };
@@ -163,6 +176,7 @@ function normalizeLoadedConfig(rawConfig) {
     }
     catch {
         return {
+            sessionModeConfigured: false,
             config: createDefaultConfig(),
             warnings: ["Config file is malformed JSON. Using defaults."],
         };
@@ -173,6 +187,7 @@ function normalizeConfigShape(input) {
     const root = asRecord(input);
     if (!root) {
         return {
+            sessionModeConfigured: false,
             config: createDefaultConfig(),
             warnings: ["Config file root must be a JSON object. Using defaults."],
         };
@@ -182,10 +197,12 @@ function normalizeConfigShape(input) {
         warnings.push(`Config version ${String(root.version)} is unsupported. Normalizing to version ${CONFIG_SCHEMA_VERSION}.`);
     }
     config.defaultMode = normalizeRunMode(root.defaultMode, warnings, "defaultMode");
+    config.sessionMode = normalizeSessionMode(root.sessionMode, warnings, "sessionMode");
     config.profiles = normalizeProfiles(root.profiles, warnings);
     config.lowQuotaPreferredProfiles = normalizeProfileArray(root.lowQuotaPreferredProfiles, warnings, "lowQuotaPreferredProfiles");
     config.recentHandoffs = normalizeRecentHandoffs(root.recentHandoffs, warnings);
     return {
+        sessionModeConfigured: "sessionMode" in root,
         config: sanitizeConfig(config),
         warnings,
     };
@@ -276,6 +293,16 @@ function normalizeRunMode(input, warnings, fieldName) {
     }
     return input;
 }
+function normalizeSessionMode(input, warnings, fieldName) {
+    if (input === undefined || input === null) {
+        return "global";
+    }
+    if (!isSessionMode(input)) {
+        warnings.push(`${fieldName} must be one of ${SESSION_MODES.join(", ")}. Using global.`);
+        return "global";
+    }
+    return input;
+}
 function normalizeProfileArray(input, warnings, fieldName) {
     if (input === undefined) {
         return [];
@@ -313,6 +340,7 @@ function sanitizeConfig(config) {
     return {
         version: CONFIG_SCHEMA_VERSION,
         defaultMode: isRunMode(config.defaultMode) ? config.defaultMode : null,
+        sessionMode: getSessionMode(config),
         profiles: normalizedProfiles,
         lowQuotaPreferredProfiles: normalizeProfileIdList(config.lowQuotaPreferredProfiles),
         recentHandoffs: normalizedHandoffs,
@@ -325,6 +353,7 @@ function cloneConfig(config) {
     return {
         version: CONFIG_SCHEMA_VERSION,
         defaultMode: isRunMode(config.defaultMode) ? config.defaultMode : null,
+        sessionMode: getSessionMode(config),
         profiles: Object.fromEntries(Object.entries(config.profiles).map(([profileId, profileConfig]) => [
             profileId,
             { defaultMode: isRunMode(profileConfig.defaultMode) ? profileConfig.defaultMode : null },
@@ -345,6 +374,9 @@ function normalizeProfileIdList(profileIds) {
         normalizedProfileIds.push(normalizedProfileId);
     }
     return normalizedProfileIds;
+}
+function isSessionMode(input) {
+    return typeof input === "string" && SESSION_MODES.includes(input);
 }
 function normalizeProfileId(profileId) {
     const normalizedProfileId = profileId.trim();

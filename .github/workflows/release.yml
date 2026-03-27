@@ -90,6 +90,12 @@ jobs:
         if: steps.guard.outputs.skip != 'true' && steps.stale_main_guard.outputs.skip != 'true'
         run: npm run build
 
+      - name: Materialize release notes
+        if: steps.guard.outputs.skip != 'true' && steps.stale_main_guard.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: node scripts/release-notes.mjs materialize "$VERSION"
+
       - name: Guard stale runs before publish
         if: steps.guard.outputs.skip != 'true' && steps.stale_main_guard.outputs.skip != 'true'
         id: prepublish_stale_guard
@@ -114,7 +120,7 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          git add package.json package-lock.json
+          git add package.json package-lock.json release-notes
           git commit -m "chore: release v$VERSION [skip ci]"
           git tag "v$VERSION"
 
@@ -143,6 +149,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}
+          body_path: release-notes/v${{ steps.version.outputs.version }}.md
           files: |
             cdx-v${{ steps.version.outputs.version }}-linux.tar.gz
             cdx-v${{ steps.version.outputs.version }}-linux.zip

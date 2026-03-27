@@ -60,6 +60,11 @@ cdx remote // 모바일 실행
 cdx usage // 사용량 확인
 ```
 
+처음 인터랙티브한 Codex 명령을 실행하면 `cdx`가 세션 저장 방식을 먼저 물어봅니다.
+
+- `global`: 발견된 Codex 홈을 즉시 스캔해 세션을 `~/.cdx/sessions`로 병합합니다
+- `profile`: 각 프로필의 `CODEX_HOME/sessions`를 따로 유지합니다
+
 ## 주요 명령
 
 | 명령 | 설명 |
@@ -73,6 +78,7 @@ cdx usage // 사용량 확인
 | `cdx logout <profile>` | 프로필 로그아웃을 시작합니다. |
 | `cdx ls` | 감지된 프로필 목록을 보여줍니다. |
 | `cdx rm <profile> [--force]` | 프로필을 삭제합니다. |
+| `cdx session [status]` | 세션 저장 모드를 확인하거나 인터랙티브하게 변경합니다. 기본값: 전역 `~/.cdx/sessions`. |
 | `cdx agents edit --global` | 공통 전역 `AGENTS.md`를 준비하고 엽니다. |
 | `cdx agents status` | 현재 저장소와 전역 `AGENTS.md` 연결 상태를 확인합니다. |
 
@@ -81,3 +87,7 @@ cdx usage // 사용량 확인
 - 외부 링크: `cdx remote <profile>`
 - 같은 Wi-Fi / LAN: `cdx remote <profile> --tunnel none --lan`
 - 로컬 전용: `cdx remote <profile> --tunnel none`
+
+릴리스 이력은 GitHub Releases에서 확인할 수 있습니다.
+
+- https://github.com/ezpzai/cdx/releases

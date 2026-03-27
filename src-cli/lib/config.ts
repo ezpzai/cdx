@@ -4,8 +4,10 @@ import { getCdxConfigPath } from "./paths.js";
 
 export const CONFIG_SCHEMA_VERSION = 1;
 export const RUN_MODES = ["safe", "balanced", "yolo"] as const;
+export const SESSION_MODES = ["global", "profile"] as const;
 
 export type RunMode = (typeof RUN_MODES)[number];
+export type SessionMode = (typeof SESSION_MODES)[number];
 
 export interface ProfileConfig {
   defaultMode: RunMode | null;
@@ -25,6 +27,7 @@ export interface RecentHandoffMetadata {
 export interface CdxConfig {
   version: typeof CONFIG_SCHEMA_VERSION;
   defaultMode: RunMode | null;
+  sessionMode: SessionMode;
   profiles: Record<string, ProfileConfig>;
   lowQuotaPreferredProfiles: string[];
   recentHandoffs: Record<string, RecentHandoffMetadata>;
@@ -33,6 +36,7 @@ export interface CdxConfig {
 export interface LoadConfigResult {
   path: string;
   exists: boolean;
+  sessionModeConfigured: boolean;
   config: CdxConfig;
   warnings: string[];
 }
@@ -41,6 +45,7 @@ export function createDefaultConfig(): CdxConfig {
   return {
     version: CONFIG_SCHEMA_VERSION,
     defaultMode: null,
+    sessionMode: "global",
     profiles: {},
     lowQuotaPreferredProfiles: [],
     recentHandoffs: {},
@@ -49,6 +54,10 @@ export function createDefaultConfig(): CdxConfig {
 
 export function getGlobalDefaultMode(config: CdxConfig): RunMode | null {
   return config.defaultMode;
+}
+
+export function getSessionMode(config: CdxConfig): SessionMode {
+  return isSessionMode(config.sessionMode) ? config.sessionMode : "global";
 }
 
 export function getProfileDefaultMode(config: CdxConfig, profileId: string): RunMode | null {
@@ -75,6 +84,13 @@ export function setGlobalDefaultMode(config: CdxConfig, mode: RunMode | null): C
   return {
     ...cloneConfig(config),
     defaultMode: mode,
+  };
+}
+
+export function setSessionMode(config: CdxConfig, mode: SessionMode): CdxConfig {
+  return {
+    ...cloneConfig(config),
+    sessionMode: isSessionMode(mode) ? mode : "global",
   };
 }
 
@@ -202,6 +218,7 @@ export async function loadConfig(configPath = getCdxConfigPath()): Promise<LoadC
       return {
         path: configPath,
         exists: false,
+        sessionModeConfigured: false,
         config: createDefaultConfig(),
         warnings: [],
       };
@@ -210,6 +227,7 @@ export async function loadConfig(configPath = getCdxConfigPath()): Promise<LoadC
     return {
       path: configPath,
       exists: true,
+      sessionModeConfigured: false,
       config: createDefaultConfig(),
       warnings: [formatReadError(error, configPath)],
     };
@@ -228,23 +246,25 @@ export async function saveConfig(config: CdxConfig, configPath = getCdxConfigPat
   return normalizedConfig;
 }
 
-function normalizeLoadedConfig(rawConfig: string): Pick<LoadConfigResult, "config" | "warnings"> {
+function normalizeLoadedConfig(rawConfig: string): Pick<LoadConfigResult, "config" | "warnings" | "sessionModeConfigured"> {
   try {
     const parsed = JSON.parse(rawConfig) as unknown;
     return normalizeConfigShape(parsed);
   } catch {
     return {
+      sessionModeConfigured: false,
       config: createDefaultConfig(),
       warnings: ["Config file is malformed JSON. Using defaults."],
     };
   }
 }
 
-function normalizeConfigShape(input: unknown): Pick<LoadConfigResult, "config" | "warnings"> {
+function normalizeConfigShape(input: unknown): Pick<LoadConfigResult, "config" | "warnings" | "sessionModeConfigured"> {
   const warnings: string[] = [];
   const root = asRecord(input);
   if (!root) {
     return {
+      sessionModeConfigured: false,
       config: createDefaultConfig(),
       warnings: ["Config file root must be a JSON object. Using defaults."],
     };
@@ -257,6 +277,7 @@ function normalizeConfigShape(input: unknown): Pick<LoadConfigResult, "config" |
   }
 
   config.defaultMode = normalizeRunMode(root.defaultMode, warnings, "defaultMode");
+  config.sessionMode = normalizeSessionMode(root.sessionMode, warnings, "sessionMode");
   config.profiles = normalizeProfiles(root.profiles, warnings);
   config.lowQuotaPreferredProfiles = normalizeProfileArray(
     root.lowQuotaPreferredProfiles,
@@ -266,6 +287,7 @@ function normalizeConfigShape(input: unknown): Pick<LoadConfigResult, "config" |
   config.recentHandoffs = normalizeRecentHandoffs(root.recentHandoffs, warnings);
 
   return {
+    sessionModeConfigured: "sessionMode" in root,
     config: sanitizeConfig(config),
     warnings,
   };
@@ -378,6 +400,19 @@ function normalizeRunMode(input: unknown, warnings: string[], fieldName: string)
   return input;
 }
 
+function normalizeSessionMode(input: unknown, warnings: string[], fieldName: string): SessionMode {
+  if (input === undefined || input === null) {
+    return "global";
+  }
+
+  if (!isSessionMode(input)) {
+    warnings.push(`${fieldName} must be one of ${SESSION_MODES.join(", ")}. Using global.`);
+    return "global";
+  }
+
+  return input;
+}
+
 function normalizeProfileArray(input: unknown, warnings: string[], fieldName: string): string[] {
   if (input === undefined) {
     return [];
@@ -422,6 +457,7 @@ function sanitizeConfig(config: CdxConfig): CdxConfig {
   return {
     version: CONFIG_SCHEMA_VERSION,
     defaultMode: isRunMode(config.defaultMode) ? config.defaultMode : null,
+    sessionMode: getSessionMode(config),
     profiles: normalizedProfiles,
     lowQuotaPreferredProfiles: normalizeProfileIdList(config.lowQuotaPreferredProfiles),
     recentHandoffs: normalizedHandoffs,
@@ -436,6 +472,7 @@ function cloneConfig(config: CdxConfig): CdxConfig {
   return {
     version: CONFIG_SCHEMA_VERSION,
     defaultMode: isRunMode(config.defaultMode) ? config.defaultMode : null,
+    sessionMode: getSessionMode(config),
     profiles: Object.fromEntries(
       Object.entries(config.profiles).map(([profileId, profileConfig]) => [
         profileId,
@@ -464,6 +501,10 @@ function normalizeProfileIdList(profileIds: readonly string[]): string[] {
   }
 
   return normalizedProfileIds;
+}
+
+function isSessionMode(input: unknown): input is SessionMode {
+  return typeof input === "string" && SESSION_MODES.includes(input as SessionMode);
 }
 
 function normalizeProfileId(profileId: string): string | null {

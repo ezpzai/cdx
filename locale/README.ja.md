@@ -58,6 +58,11 @@ cdx remote // モバイル利用
 cdx usage // usage を確認
 ```
 
+最初の対話的な Codex コマンド実行時に、`cdx` はセッション保存方式を確認します。
+
+- `global`: 検出した Codex ホームを即時に走査し、セッションを `~/.cdx/sessions` に統合します
+- `profile`: 各プロファイルの `CODEX_HOME/sessions` を個別に維持します
+
 ## 主なコマンド
 
 | コマンド | 説明 |
@@ -71,6 +76,7 @@ cdx usage // usage を確認
 | `cdx logout <profile>` | プロファイルのログアウトを開始します。 |
 | `cdx ls` | 検出されたプロファイルを表示します。 |
 | `cdx rm <profile> [--force]` | プロファイルを削除します。 |
+| `cdx session [status]` | セッション保存モードを表示または対話的に変更します。既定値: グローバル `~/.cdx/sessions`。 |
 | `cdx agents edit --global` | 共有グローバル `AGENTS.md` を準備して開きます。 |
 | `cdx agents status` | 現在のリポジトリとグローバル `AGENTS.md` の接続状態を確認します。 |
 
@@ -79,3 +85,7 @@ cdx usage // usage を確認
 - 外部リンク: `cdx remote <profile>`
 - 同じ Wi-Fi / LAN: `cdx remote <profile> --tunnel none --lan`
 - ローカル専用: `cdx remote <profile> --tunnel none`
+
+リリース履歴は GitHub Releases で確認できます。
+
+- https://github.com/ezpzai/cdx/releases
