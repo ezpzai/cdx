@@ -6,6 +6,7 @@ import pc from "picocolors";
 import Table from "cli-table3";
 import { spawn } from "node:child_process";
 import { ensureGlobalAgentsLink, getAgentsStatus } from "./lib/agents.js";
+import { mapSequential } from "./lib/async.js";
 import { runCodex } from "./lib/codex.js";
 import {
   clearRecentHandoff,
@@ -355,14 +356,13 @@ function parseRemoteInvocation(args: string[]): {
 }
 
 async function loadUsageRows(profiles: ProfileRecord[]): Promise<UsageLookupRow[]> {
-  return Promise.all(
-    profiles.map(async (profile) => {
+  return mapSequential(profiles, async (profile) => {
       try {
         return {
           profile,
           usage: await fetchCodexUsage(profile, {
             allowStatusFallback: false,
-            timeoutMs: 2_500,
+            timeoutMs: 5_000,
           }),
           error: null,
         } satisfies UsageLookupRow;
@@ -373,8 +373,7 @@ async function loadUsageRows(profiles: ProfileRecord[]): Promise<UsageLookupRow[
           error: error instanceof Error ? error.message : "Unknown error",
         } satisfies UsageLookupRow;
       }
-    }),
-  );
+    });
 }
 
 async function resolveMode(config: CdxConfig, profileId: string, explicitMode: RunMode | null): Promise<RunMode> {
@@ -764,12 +763,11 @@ async function handleUsage(args: string[]): Promise<void> {
   const [profileId] = positional;
   const profiles = profileId ? [await requireProfile(profileId)] : await listProfiles();
 
-  const rows: UsageDisplayRow[] = await Promise.all(
-    profiles.map(async (profile) => {
+  const rows: UsageDisplayRow[] = await mapSequential(profiles, async (profile) => {
       try {
         const snapshot = await fetchCodexUsage(profile, {
           allowStatusFallback: false,
-          timeoutMs: 2_500,
+          timeoutMs: 5_000,
         });
         return {
           profile: snapshot.profile,
@@ -801,8 +799,7 @@ async function handleUsage(args: string[]): Promise<void> {
           error: error instanceof Error ? error.message : "Unknown error",
         };
       }
-    }),
-  );
+    });
   const sortedRows = sortUsageRowsByPriority(rows);
 
   if (json) {

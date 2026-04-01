@@ -1,4 +1,5 @@
 import { getAgentsStatus } from "./agents.js";
+import { mapSequential } from "./async.js";
 import { listProfiles } from "./profiles.js";
 import { fetchCodexUsage } from "./usage.js";
 export async function getDashboardPayload(cwd) {
@@ -17,11 +18,11 @@ export async function getDashboardPayload(cwd) {
             status: !hasAuth ? "idle" : "healthy",
         };
     });
-    const usage = await Promise.all(profiles.map(async (profile) => {
+    const usage = await mapSequential(profiles, async (profile) => {
         try {
             const snapshot = await fetchCodexUsage(profile, {
                 allowStatusFallback: false,
-                timeoutMs: 2_500,
+                timeoutMs: 5_000,
             });
             return {
                 profileId: snapshot.profile,
@@ -52,7 +53,7 @@ export async function getDashboardPayload(cwd) {
                 error: error instanceof Error ? error.message : "Unknown error",
             };
         }
-    }));
+    });
     const usageByProfile = new Map(usage.map((item) => [item.profileId, item]));
     const normalizedProfiles = profileRows.map((profile) => {
         const snapshot = usageByProfile.get(profile.id);

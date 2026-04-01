@@ -4,7 +4,7 @@ import type { ProfileRecord } from "./profiles.js";
 const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 const CODEX_USAGE_TIMEOUT_MS = 12_000;
 const USER_AGENT = "codex_cli_rs/0.76.0 (Debian 13.0.0; x86_64) WindowsTerminal";
-const REMOTE_USAGE_TIMEOUT_MS = 2_500;
+const REMOTE_USAGE_TIMEOUT_MS = 5_000;
 
 interface UsageWindowShape {
   used_percent?: number;
