@@ -1,5 +1,5 @@
 # Next release notes
 
-## Changed
+## Added
 
-- `cdx usage` and dashboard quota lookups now run in parallel again for faster multi-profile usage checks.
+- Describe user-visible changes here.
