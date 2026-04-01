@@ -5,7 +5,7 @@ import pc from "picocolors";
 import Table from "cli-table3";
 import { spawn } from "node:child_process";
 import { ensureGlobalAgentsLink, getAgentsStatus } from "./lib/agents.js";
-import { mapSequential } from "./lib/async.js";
+import { mapConcurrent } from "./lib/async.js";
 import { runCodex } from "./lib/codex.js";
 import { clearRecentHandoff, getGlobalDefaultMode, getLowQuotaPreferredProfiles, getProfileDefaultMode, getSessionMode, loadConfig, rememberLowQuotaPreferredProfile, removeProfileState, RUN_MODES, saveConfig, setGlobalDefaultMode, setProfileDefaultMode, setSessionMode, } from "./lib/config.js";
 import { getGlobalSessionsPath, getProfilesRoot } from "./lib/paths.js";
@@ -260,7 +260,7 @@ function parseRemoteInvocation(args) {
     };
 }
 async function loadUsageRows(profiles) {
-    return mapSequential(profiles, async (profile) => {
+    return mapConcurrent(profiles, async (profile) => {
         try {
             return {
                 profile,
@@ -576,7 +576,7 @@ async function handleUsage(args) {
     const positional = args.filter((arg) => arg !== "--json");
     const [profileId] = positional;
     const profiles = profileId ? [await requireProfile(profileId)] : await listProfiles();
-    const rows = await mapSequential(profiles, async (profile) => {
+    const rows = await mapConcurrent(profiles, async (profile) => {
         try {
             const snapshot = await fetchCodexUsage(profile, {
                 allowStatusFallback: false,

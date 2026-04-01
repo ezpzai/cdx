@@ -1,5 +1,5 @@
 import { getAgentsStatus } from "./agents.js";
-import { mapSequential } from "./async.js";
+import { mapConcurrent } from "./async.js";
 import { listProfiles } from "./profiles.js";
 import { fetchCodexUsage } from "./usage.js";
 
@@ -61,7 +61,7 @@ export async function getDashboardPayload(cwd: string): Promise<DashboardPayload
     };
   });
 
-  const usage = await mapSequential(profiles, async (profile) => {
+  const usage = await mapConcurrent(profiles, async (profile) => {
       try {
         const snapshot = await fetchCodexUsage(profile, {
           allowStatusFallback: false,

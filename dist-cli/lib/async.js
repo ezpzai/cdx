@@ -1,7 +1,3 @@
-export async function mapSequential(items, mapper) {
-    const results = [];
-    for (const [index, item] of items.entries()) {
-        results.push(await mapper(item, index));
-    }
-    return results;
+export async function mapConcurrent(items, mapper) {
+    return Promise.all(items.map((item, index) => mapper(item, index)));
 }

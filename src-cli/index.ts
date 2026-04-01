@@ -6,7 +6,7 @@ import pc from "picocolors";
 import Table from "cli-table3";
 import { spawn } from "node:child_process";
 import { ensureGlobalAgentsLink, getAgentsStatus } from "./lib/agents.js";
-import { mapSequential } from "./lib/async.js";
+import { mapConcurrent } from "./lib/async.js";
 import { runCodex } from "./lib/codex.js";
 import {
   clearRecentHandoff,
@@ -356,7 +356,7 @@ function parseRemoteInvocation(args: string[]): {
 }
 
 async function loadUsageRows(profiles: ProfileRecord[]): Promise<UsageLookupRow[]> {
-  return mapSequential(profiles, async (profile) => {
+  return mapConcurrent(profiles, async (profile) => {
       try {
         return {
           profile,
@@ -763,7 +763,7 @@ async function handleUsage(args: string[]): Promise<void> {
   const [profileId] = positional;
   const profiles = profileId ? [await requireProfile(profileId)] : await listProfiles();
 
-  const rows: UsageDisplayRow[] = await mapSequential(profiles, async (profile) => {
+  const rows: UsageDisplayRow[] = await mapConcurrent(profiles, async (profile) => {
       try {
         const snapshot = await fetchCodexUsage(profile, {
           allowStatusFallback: false,
