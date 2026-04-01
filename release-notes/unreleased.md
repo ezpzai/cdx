@@ -1,5 +1,5 @@
 # Next release notes
 
-## Changed
+## Added
 
-- `cdx usage` and dashboard quota lookups now query profiles sequentially to reduce intermittent usage timeouts.
+- Describe user-visible changes here.
