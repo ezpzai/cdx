@@ -146,7 +146,7 @@ jobs:
 
       - name: Publish GitHub release
         if: steps.guard.outputs.skip != 'true' && steps.stale_main_guard.outputs.skip != 'true' && steps.prepublish_stale_guard.outputs.skip != 'true'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ steps.version.outputs.version }}
           body_path: release-notes/v${{ steps.version.outputs.version }}.md
